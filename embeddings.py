@@ -76,8 +76,9 @@ class GaussianEmbedding(RandomEmbedding):
                  solver_option=None, name='gaussian', _seed=None):
         
         self.__auto_init(locals())
+        self.linear = True
         self.set_seed(_seed)
-        self.source = NumpyVectorSpace(source_dim, range_id)
+        self.source = NumpyVectorSpace(source_dim, source_id)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
         else :
@@ -124,6 +125,7 @@ class RademacherEmbedding(RandomEmbedding):
                  solver_option=None, name='rademacher', _seed=None):
         
         self.__auto_init(locals())
+        self.linear = True
         self.set_seed(_seed)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
@@ -172,6 +174,7 @@ class SrhtEmbedding(RandomEmbedding):
                  range_id=None, solver_option=None, name='srht'):
         
         assert dtype in (float, complex)
+        self.linear = True
         self.__auto_init(locals())
         self.set_seed(seed)
         self.source = NumpyVectorSpace(source_dim, range_id)

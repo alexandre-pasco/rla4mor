@@ -62,10 +62,9 @@ class SketchedRom():
         
         for key, val in locals().items():
             self.__setattr__(key, val)
-        self.SUr = None
+        self.SUr = embedding.range.empty()
         self.SVr = None
-        self.SF = self._sketch_rhs()
-        self.Ur = None
+        self.Ur = lhs.source.empty()
         
         if cholesky_product is None: 
             if product is None:
@@ -78,6 +77,8 @@ class SketchedRom():
                     source_id=product.source.id, range_id=product.range.id
                     )
                 print("Done")
+        self.SF = self._sketch_rhs()
+        
         
     def _sketch_rhs(self):
         if self.embedding is None:
@@ -85,7 +86,7 @@ class SketchedRom():
             print("No embedding to sketch the rhs.")
         else:
             chol_inv = InverseOperator(self.cholesky_product)
-            theta = ConcatenationOperator([self.embedding, chol_inv])
+            theta = ConcatenationOperator((self.embedding, chol_inv))
             SF = op_compose_lincomb(theta, self.rhs)
         return SF
 
@@ -97,7 +98,7 @@ class SketchedRom():
         return SU
 
 
-    def _sketch_lhs_u(self, U):
+    def _sketch_sv(self, U):
         chol_inv = InverseOperator(self.cholesky_product)
         theta = ConcatenationOperator((self.embedding, chol_inv))
         AUr = apply_affine(self.lhs, U)
@@ -115,5 +116,19 @@ class SketchedRom():
     
     
     def add_vectors(self, U):
+        if self.full_basis: 
+            self.Ur.append(U)
+        self.SUr.append(self._sketch_u(U))
+        self.SVr = lincomb_join(self.SVr, self._sketch_sv(U))
+        # TO DO: extending the reduced output functional
+    
+    
+    def orthonormalize_basis(self):
+        # TO DO
         pass
     
+    
+    def from_sketch(self, sketch):
+        # TO DO
+        pass
+        
