@@ -66,7 +66,7 @@ def op_compose_lincomb(A, B):
 
     operators = []
     for op in B.operators:
-        operators.append(ConcatenationOperator([A, op]))
+        operators.append(ConcatenationOperator((A, op)))
     res = LincombOperator(operators, B.coefficients, name=A.name + '@' + B.name)
     return res
 
@@ -93,7 +93,7 @@ def lincomb_compose_lincomb(A, B):
     coefficients = []
     for i in range(len(A.operators)):
         for j in range(len(B.operators)):
-            operators.append(ConcatenationOperator([A.operators[i], B.operators[j]]))
+            operators.append(ConcatenationOperator((A.operators[i], B.operators[j])))
             coefficients.append(A.coefficients[i]* B.coefficients[j])
             
     res = LincombOperator(operators, coefficients, name=A.name + '@' + B.name)
@@ -159,4 +159,8 @@ def lincomb_complex_to_real(B):
     B_block = LincombOperator(operators, B.coefficients)
     return B_block
 
+
+def lincomb_add_column(A, U):
+    #TO DO
+    pass
 
