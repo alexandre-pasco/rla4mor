@@ -160,32 +160,3 @@ def lincomb_complex_to_real(B):
     return B_block
 
 
-
-if __name__ == '__main__':
-    
-    parameters = {'mu0': 1, 'mu1': 1}
-    alpha0 = ExpressionParameterFunctional('1.0 + mu0[0]',parameters)
-    alpha1 = ExpressionParameterFunctional('1.0 + mu0[0] + mu1[0]',parameters)
-    operators = [NumpyMatrixOperator(np.random.normal(size=(10,10))) for i in range(2)]
-    coefficients = [alpha0, alpha1]
-    A = LincombOperator(operators, coefficients)
-    mu = Mu({'mu0': [1.], 'mu1': [2.]})
-    U = A.source.from_numpy(np.random.normal(size=(3,10)))
-
-    AU_mu = A.apply(U, mu)
-    AAU_mu = A.apply(A.apply(U,mu),mu)
-
-    AU = apply_affine(A, U)
-    AA = lincomb_compose_lincomb(A, A)
-    AAU = apply_affine(AA, U)
-    AAU_bis = apply_affine(op_compose_lincomb(A.assemble(mu), A), U)
-
-    err1 = (AU_mu - AU.as_range_array(mu)).norm() / AU_mu.norm()
-    err2 = (AAU_mu - AAU.as_range_array(mu)).norm() / AAU_mu.norm()
-    err3 = (AAU_mu - AAU_bis.as_range_array(mu)).norm() / AAU_mu.norm()
-
-    print('Relative error on AU', err1.sum())
-    print('Relative error on AAU', err2.sum())
-    print('Relative error on AAU_bis', err3.sum())   
-
-

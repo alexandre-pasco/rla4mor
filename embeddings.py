@@ -16,7 +16,6 @@ import ffht
 
 class RandomEmbedding(Operator):
     """
-    
     Random Embedding
     
     Attibutes
@@ -33,11 +32,9 @@ class RandomEmbedding(Operator):
         If implemented, the seed for the random operator.
     dtype : data-type
         The data type, float' or complex.
-    
-    
     """
     
-        
+
     @abstractmethod
     def compute_dim(self):
         """
