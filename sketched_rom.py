@@ -125,23 +125,90 @@ class SketchedRom():
         # TO DO: extending the reduced output functional
     
     
-    def orthonormalize_basis(self, offset=0):
-        Q, R = gram_schmidt(self.SUr, offset=offset, return_R=True)
-        T = InverseOperator(ImplicitLuOperator(csc_matrix(R)))
-        
-        self.SUr = Q
-        self.SVr = lincomb_compose_op_implicit(self.SVr,T)
+    def orthonormalize_basis(self, T=None, offset=0):
+        if T is None:
+            Q, R = gram_schmidt(self.SUr, offset=offset, return_R=True)
+            T = InverseOperator(ImplicitLuOperator(csc_matrix(R)))
+            self.SUr = Q
+        else:
+            SUr_H = T.apply_adjoint(T.source.from_numpy(self.SUr.to_numpy().conj().T))
+            self.SUr = self.SUr.space.from_numpy(SUr_H.to_numpy().conj().T)
         
         if self.full_basis:
             Ur_H = T.apply_adjoint(T.source.from_numpy(self.Ur.to_numpy().conj().T))
             self.Ur = self.Ur.space.from_numpy(Ur_H.to_numpy().conj().T)
 
+        self.SVr = lincomb_compose_op_implicit(self.SVr,T)
 
     def from_sketch(self, sketch):
         embedding = self.embedding
         self.SUr = embedding.apply(sketch.SUr)
         self.SVr = op_compose_lincomb(embedding, sketch.SVr)
         self.SF = op_compose_lincomb(embedding, sketch.SF)
+    
+    
+
+
+from pymor.algorithms.greedy import WeakGreedySurrogate
+
+class SketchedSurrogate(WeakGreedySurrogate):
+    
+    def __init__(self, lhs, rhs, embedding=None, output_functional=None, product=None, 
+                 cholesky_product=None, cholesky_ordering='default', full_basis=False):
+        
+        self.sketched_rom = SketchedRom(
+            lhs, rhs, embedding, output_functional, product, 
+            cholesky_product, cholesky_ordering, full_basis
+            )
+    
+    def evaluate(self, mus, return_all_values=False):
+        # Provisional. Only Galerkin for now
+        # sketch = self.sketched_rom
+        # SUr = sketch.SUr
+        # SVr = sketch.SVr
+        # SF = sketch.SF
+        # op = AdjointOperator(NumpyMatrixOperator(SUr.to_numpy().T, source_id=SVr.range.id))
+        # Ar = op_compose_lincomb(op, SVr)
+        # br = op_compose_lincomb(op, SF) 
+        
+        # errors = []
+        
+        # for mu in mus:
+        #     A = Ar.assemble(mu).matrix
+        #     b = br.assemble(mu).matrix
+        #     coef, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+        #     ar = SVr.source.from_numpy(coef.T)
+        #     residual = SVr.apply(ar, mu) - SF.as_range_array(mu)
+        #     err = residual.norm()[0]
+        #     errors.append(err)
+        
+        # if return_all_values:
+        #     result = np.array(errors)
+        # else:
+        #     ind = np.argmax(errors)
+        #     result = (errors[ind], mus[ind])
+        
+        # return result
+        pass
+    
+    def extend(self, mu, U=None):
+        if isinstance(mu, list):
+            mus = mu
+        else:
+            mus = [mu]
+
+        if U is None:
+            lhs = self.sketched_rom.lhs
+            rhs = self.sketched_rom.rhs
+            U = lhs.source.empty()
+            for i in range(len(mus)):
+                b = rhs.as_range_array(mus[i])
+                U.append(lhs.apply_inverse(b, mus[i]))
+
+        r = len(self.sketched_rom.SUr)
+        self.sketched_rom.add_vectors(U)
+        self.sketched_rom.orthonormalize_basis(offset=r)
+        
         
         
         

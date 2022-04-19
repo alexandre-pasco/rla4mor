@@ -9,6 +9,7 @@ Created on Wed Apr 13 16:06:59 2022
 import numpy as np
 from pymor.core.base import abstractmethod
 from pymor.operators.constructions import Operator
+from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 import ffht
@@ -28,10 +29,12 @@ class RandomEmbedding(Operator):
     oblivious_dim : int
         The dimension for which any subspace is embedded with probability
         delta and relative error epsilon
-    _seed : int
-        If implemented, the seed for the random operator.
     dtype : data-type
         The data type, float' or complex.
+    _seed : int
+        If implemented, the seed for the random operator.
+    _update : bool
+        True if the embedding needs to be updated due to a seed change.
     """
     
 
@@ -48,6 +51,17 @@ class RandomEmbedding(Operator):
         """
         pass
     
+    @abstractmethod
+    def update(self):
+        """
+        Update the embedding according to the attribute _seed.
+
+        Returns
+        -------
+        None.
+
+        """
+        pass
     
     def set_seed(self, seed=None):
         """
@@ -67,6 +81,7 @@ class RandomEmbedding(Operator):
         else :
             new_seed = seed
         self._seed = new_seed
+        self.update()
     
     
 class GaussianEmbedding(RandomEmbedding):
@@ -74,6 +89,50 @@ class GaussianEmbedding(RandomEmbedding):
     def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
                  oblivious_dim=None, dtype=float, source_id=None, range_id=None, 
                  solver_option=None, name='gaussian', _seed=None):
+        
+        self.__auto_init(locals())
+        self.linear = True
+        self.source = NumpyVectorSpace(source_dim, source_id)
+        if (epsilon is None) or (delta is None) or (oblivious_dim is None):
+            embedding_dim = range_dim
+        else :
+            embedding_dim = self.compute_dim()
+        self.range = NumpyVectorSpace(embedding_dim, range_id)
+        self.set_seed(_seed)
+
+
+    def compute_dim(self):
+        if self.dtype is float: a = 1
+        elif self.dtype is complex: a = 2
+        else: 
+            print('Wrong data-type. Considered as float.')
+            a = 1
+        bound = 7.87 * self.epsilon * (a * 6.9 * self.oblivious_dim + np.log(1/self.delta))
+        return bound
+    
+    
+    def apply(self, U, mu=None):
+        gauss = self._matrix
+        op = NumpyMatrixOperator(gauss, source_id=self.source.id, range_id=self.range.id)
+        return op.apply(U)
+    
+    
+    def update(self):
+        k = self.range.dim
+        n = self.source.dim
+        gauss = np.random.RandomState(self._seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
+        self._matrix = gauss
+    
+    
+    def get_matrix(self):
+        return self._matrix
+
+
+class GaussianEmbeddingRowWise(RandomEmbedding):
+    
+    def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
+                 oblivious_dim=None, dtype=float, source_id=None, range_id=None, 
+                 solver_option=None, name='gaussian_row_wise', _seed=None):
         
         self.__auto_init(locals())
         self.linear = True
@@ -108,7 +167,11 @@ class GaussianEmbedding(RandomEmbedding):
         return self.range.from_numpy(result.T)
     
     
-    def matrix(self):
+    def update(self):
+        pass
+    
+    
+    def get_matrix(self):
         n = self.source.dim
         k = self.range.dim
         mat = np.zeros((k,n))
@@ -157,7 +220,11 @@ class RademacherEmbedding(RandomEmbedding):
         return self.range.from_numpy(result.T)
     
     
-    def matrix(self):
+    def update(self):
+        pass
+
+    
+    def get_matrix(self):
         n = self.source.dim
         k = self.range.dim
         mat = np.zeros((k,n))
@@ -247,3 +314,27 @@ class SrhtEmbedding(RandomEmbedding):
     def apply(self, U, mu=None):
         assert U in self.source
         return self.range.from_numpy(self.srht(U.to_numpy()))
+    
+    
+    def update(self):
+        pass
+    
+    
+def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None, delta=None, 
+             oblivious_dim=None, seed=None, dtype=float, source_id=None, 
+             range_id=None, solver_option=None):
+    kwargs = locals()
+    _ = kwargs.pop('embedding_type')
+    if embedding_type == 'srht':
+        embedding = SrhtEmbedding(**kwargs)
+    elif embedding_type == 'rademacher':
+        embedding = RademacherEmbedding(**kwargs)
+    elif embedding_type == 'gaussian_row_wise':
+        embedding = GaussianEmbeddingRowWise(**kwargs)
+    elif embedding_type == 'gaussian':
+        embedding = GaussianEmbedding(**kwargs)
+    else:
+        print("Embedding type note implemented, gaussian used.")
+        embedding = GaussianEmbedding(**kwargs)
+    return embedding
+
