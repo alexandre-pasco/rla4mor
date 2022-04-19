@@ -10,7 +10,7 @@ from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.operators.constructions import LincombOperator, IdentityOperator, ConcatenationOperator, \
     InverseOperator, AdjointOperator
 from pymor.algorithms.gram_schmidt import gram_schmidt
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, csr_matrix
 from scipy.sparse.linalg import inv
 
 from affine_operations import *
@@ -49,11 +49,11 @@ class SketchedRom():
         SVr = embedding @ product^-1 @ A @ Ur
     SF : LincombOperator
         The sketched affine rhs.
-        SF = embedding @ product^-1 @ rhs
-    full_basis : bool
-        If True, the full basis will be stored.
+        SF = embedding @ product^-1 @ rhs.
     Ur : NumpyVectorArray
         If full_basis is True, it is the full reduced basis. Else, it is None.
+    full_basis : bool
+        If True, the full basis will be stored.
     
     """
     
@@ -64,6 +64,7 @@ class SketchedRom():
             self.__setattr__(key, val)
         self.SUr = embedding.range.empty()
         self.SVr = None
+        self.SF = None
         self.Ur = lhs.source.empty()
         
         if cholesky_product is None: 
@@ -77,7 +78,6 @@ class SketchedRom():
                     source_id=product.source.id, range_id=product.range.id
                     )
                 print("Done")
-        self.SF = self._sketch_rhs()
         
         
     def _sketch_rhs(self):
@@ -92,8 +92,8 @@ class SketchedRom():
 
 
     def _sketch_u(self, U):
-        chol_inv = InverseOperator(self.cholesky_product)
-        theta = ConcatenationOperator((self.embedding, chol_inv))
+        chol_H = AdjointOperator(self.cholesky_product)
+        theta = ConcatenationOperator((self.embedding, chol_H))
         SU = theta.apply(U)
         return SU
 
@@ -116,6 +116,8 @@ class SketchedRom():
     
     
     def add_vectors(self, U):
+        if self.SF is None :
+            self.SF = self._sketch_rhs()
         if self.full_basis: 
             self.Ur.append(U)
         self.SUr.append(self._sketch_u(U))
@@ -123,12 +125,23 @@ class SketchedRom():
         # TO DO: extending the reduced output functional
     
     
-    def orthonormalize_basis(self):
-        # TO DO
-        pass
-    
-    
+    def orthonormalize_basis(self, offset=0):
+        Q, R = gram_schmidt(self.SUr, offset=offset, return_R=True)
+        T = InverseOperator(ImplicitLuOperator(csc_matrix(R)))
+        
+        self.SUr = Q
+        self.SVr = lincomb_compose_op_implicit(self.SVr,T)
+        
+        if self.full_basis:
+            Ur_H = T.apply_adjoint(T.source.from_numpy(self.Ur.to_numpy().conj().T))
+            self.Ur = self.Ur.space.from_numpy(Ur_H.to_numpy().conj().T)
+
+
     def from_sketch(self, sketch):
-        # TO DO
-        pass
+        embedding = self.embedding
+        self.SUr = embedding.apply(sketch.SUr)
+        self.SVr = op_compose_lincomb(embedding, sketch.SVr)
+        self.SF = op_compose_lincomb(embedding, sketch.SF)
+        
+        
         

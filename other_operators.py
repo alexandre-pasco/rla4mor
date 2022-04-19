@@ -17,7 +17,6 @@ from sksparse.cholmod import cholesky
 from scipy.sparse.linalg import splu
 
 
-        
 class CholeskyOperator(Operator):
     """
     
@@ -47,6 +46,7 @@ class CholeskyOperator(Operator):
         self.range = NumpyVectorSpace(matrix.shape[0], range_id)
         self.factor = cholesky(matrix, mode=mode, ordering_method=ordering_method)
         
+        
     def apply(self, U, mu=None):
         assert U in self.source
         factor = self.factor
@@ -54,11 +54,13 @@ class CholeskyOperator(Operator):
         result = factor.apply_Pt(L.dot(U.to_numpy().T))
         return self.range.from_numpy(result.T)
     
+    
     def apply_inverse(self, U, mu=None, **kwargs):
         assert U in self.range
         factor = self.factor
         result = factor.solve_L(factor.apply_P(U.to_numpy().T), False)
         return self.source.from_numpy(result.T)
+    
     
     def apply_adjoint(self, U, mu=None):
         assert U in self.range
@@ -67,11 +69,13 @@ class CholeskyOperator(Operator):
         result = Lt.dot(factor.apply_P(U.to_numpy().T))
         return self.source.from_numpy(result.T)
     
+    
     def apply_inverse_adjoint(self, U, mu=None, **kwargs):
         assert U in self.source
         factor = self.factor
         result = factor.apply_Pt(factor.solve_Lt(U.to_numpy().T))
         return self.range.from_numpy(result.T)
+    
     
     def matrix(self):
         factor = self.factor
@@ -100,9 +104,11 @@ class ImplicitLuOperator(Operator):
         self.range = NumpyVectorSpace(matrix.shape[0], range_id)
         self.slu = splu(matrix, permc_spec=permc_spec)
 
+
     def apply(self, U, mu=None):
         operator = NumpyMatrixOperator(self.matrix, self.source_id, self.range_id)
         return operator.apply(U)
+    
     
     def apply_inverse(self, U, mu=None):
         assert U in self.range
@@ -110,9 +116,11 @@ class ImplicitLuOperator(Operator):
         result = slu.solve(U.to_numpy().T)
         return self.source.from_numpy(result.T)
     
+    
     def apply_adjoint(self, U, mu=None):
         operator = NumpyMatrixOperator(self.matrix, self.source_id, self.range_id)
         return operator.apply_adjoint(U)
+    
     
     def apply_inverse_adjoint(self, U, mu=None):
         assert U in self.range

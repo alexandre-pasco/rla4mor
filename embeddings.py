@@ -131,7 +131,7 @@ class RademacherEmbedding(RandomEmbedding):
             embedding_dim = range_dim
         else :
             embedding_dim = self.compute_dim()
-        self.source = NumpyVectorSpace(source_dim, range_id)
+        self.source = NumpyVectorSpace(source_dim, source_id)
         self.range = NumpyVectorSpace(embedding_dim, range_id)
 
 
@@ -177,7 +177,7 @@ class SrhtEmbedding(RandomEmbedding):
         self.linear = True
         self.__auto_init(locals())
         self.set_seed(seed)
-        self.source = NumpyVectorSpace(source_dim, range_id)
+        self.source = NumpyVectorSpace(source_dim, source_id)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
         else :

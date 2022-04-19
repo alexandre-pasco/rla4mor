@@ -8,7 +8,7 @@ Created on Thu Apr 14 15:34:58 2022
 
 import numpy as np
 from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.operators.constructions import LincombOperator, ConcatenationOperator
+from pymor.operators.constructions import LincombOperator, ConcatenationOperator, AdjointOperator
 from pymor.parameters.functionals import ExpressionParameterFunctional, ConjugateParameterFunctional
 from pymor.parameters.base import Mu
 
@@ -73,6 +73,39 @@ def op_compose_lincomb(A, B):
                 )
             )
     res = LincombOperator(operators, B.coefficients)
+    return res
+
+def lincomb_compose_op_implicit(A,B):
+    """
+    Build a LincombOperator of ConcatenationOperator from the concatenation of 
+    the affine terms of A to B. This function should only be used when B is 
+    in the form of an implicit matrix (wrapped in an operator).
+
+
+    Parameters
+    ----------
+    A : LincombOperator
+        A.operators must be a list of NumpyMatrixOperator with dense 
+        rectangular matrix.
+    B : Operator
+        Implicite operator.
+    Returns
+    -------
+    res : LincombOperator
+        The operator, which terms are [A @ B_i]
+
+    """
+    operators = []
+    for op in A.operators:
+        operators.append(
+            NumpyMatrixOperator(
+                B.apply_adjoint(
+                    B.source.from_numpy(op.matrix.conj())
+                    ).to_numpy().conj(),
+                source_id = B.source.id, range_id=A.range.id
+                )
+            )
+    res = LincombOperator(operators, A.coefficients)
     return res
 
 def lincomb_adjoint_compose_lincomb(A, B):
