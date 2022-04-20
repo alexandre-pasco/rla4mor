@@ -6,12 +6,13 @@ Created on Thu Apr 14 15:29:28 2022
 @author: pasco
 """
 
+import numpy as np
+from time import perf_counter
 from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.operators.constructions import LincombOperator, IdentityOperator, ConcatenationOperator, \
+from pymor.operators.constructions import IdentityOperator, ConcatenationOperator, \
     InverseOperator, AdjointOperator
 from pymor.algorithms.gram_schmidt import gram_schmidt
-from scipy.sparse import csc_matrix, csr_matrix
-from scipy.sparse.linalg import inv
+from scipy.sparse import csc_matrix
 
 from affine_operations import *
 from other_operators import *
@@ -58,7 +59,7 @@ class SketchedRom():
     
     def __init__(self, lhs, rhs, embedding=None, output_functional=None, product=None, 
                  cholesky_product=None, cholesky_ordering='default', full_basis=False):
-        
+                
         for key, val in locals().items():
             self.__setattr__(key, val)
         self.SUr = embedding.range.empty()
@@ -161,7 +162,7 @@ class SketchedRom():
         self.SVr = lincomb_compose_op_implicit(self.SVr,T)
 
 
-    def from_sketch(self, sketch):
+    def from_sketch(self, sketch, seed=None):
         """
         Generate the sketch from another SketchedRom by embedding the already 
         embedded quantities of sketch
@@ -170,50 +171,41 @@ class SketchedRom():
         ----------
         sketch : SketchedRom
             The SketchedRom to sketch again.
-
+        see : int
+            The seed 
         Returns
         -------
         None.
 
         """
+        self.embedding.set_seed(seed)
         embedding = self.embedding
         self.SUr = embedding.apply(sketch.SUr)
         self.SVr = op_compose_lincomb(embedding, sketch.SVr)
         self.SF = op_compose_lincomb(embedding, sketch.SF)
 
-
-    def evaluate_residual(self, coef, mu, SVr=None, SF=None):
-        """
-        
-
-        Parameters
-        ----------
-        coef : NumpyVectorArray
-            The coefficient of the reduced solution.
-        mu : Mu
-            
-        SVr : Operator, optional
-            Can be passed as argument if already assembled. The default is None.
-        SF : Operator, optional
-            Can be passed in agrument if already assembled. The default is None.
-
-        Returns
-        -------
-        residual : NumpyVectorArray
-            The sketched residual corresponding to the reduced solution.
-
-        """
-        if SVr is None or SF is None:
-            SVr = self.SVr
-            SF = self.SF
-        residual = SVr.apply(coeff, mu) - SF.as_range_array(mu)
-        return residual
+    
+    def project(self, mus, projection):
+        if projection in ('galerkin', 'minres_ls', 'minres_normal'):
+            coefs, times = self.rb_projection(mus, projection)
+        return coefs, times
     
     
     def rb_projection(self, mus, projection):
+        if self.SVr is None:
+            times = {'offline_assembling': 0., 'rom_solving': 0., 'offline_assembling': 0.}
+            coefs = None
+        else:
+            coefs, times = self._rb_projection(mus, projection)
+        return coefs, times
+    
+    
+    def _rb_projection(self, mus, projection):
         coefs = self.SVr.source.empty()
         ls = False
+        times = {'offline_assembling': 0., 'rom_solving': 0.}
         
+        tic = perf_counter()
         if projection == 'galerkin': 
             red_lhs, red_rhs = self._galerkin_system()
         elif projection == 'minres_ls':
@@ -222,13 +214,17 @@ class SketchedRom():
         elif projection == 'minres_normal':
             red_lhs, red_rhs = self._minres_normal_system()
         else:
-            print("Projection not valid. Galerkin projection performed")
-
+            print("WARNING : Projection not valid.")
+        times['offline_assembling'] = perf_counter() - tic
+        
+        tic = perf_counter()
         for mu in mus:
             # compute the reduced solutions
             coef = red_lhs.apply_inverse(red_rhs.as_range_array(mu), mu, least_squares=(ls))
             coefs.append(coef)
-        return coefs
+        times['rom_solving'] = perf_counter() - tic
+        
+        return coefs, times
 
 
     def _galerkin_system(self):
@@ -254,8 +250,39 @@ class SketchedRom():
         reduced_rhs = lincomb_adjoint_compose_lincomb(SVr, SF)
         return reduced_lhs, reduced_rhs
 
-    def error_estimator(self, coefs, mus, return_residuals=False):
-        assert len(mus) == len(coefs)
+
+    def residual_norms(self, coefs, mus, return_residuals=False):
+        if self.SVr is None:
+            residuals = self.embedding.range.empty()
+            errors = np.ones(len(mus))
+        else:
+            errors, residuals = self._residual_norms(coefs, mus)
+        return errors, residuals
+
+
+    def _residual_norms(self, coefs, mus, return_residuals=False):
+        """
+        Compute the residual norms over mus by first computing the sketched 
+        residual vectors.
+        
+        Parameters
+        ----------
+        coefs : NumpyVectorArray
+            The reduced coefficients over mus.
+        mus : list of Mu
+            The parameters on which the residual norm is to be calculated.
+        return_residuals : bool
+            If True, the sketched residuals are returned. The default is False.
+
+        Returns
+        -------
+        errors : np.ndarray
+            The relative errors, defined by the residual norm over the rhs norm.
+        residuals : NumpyVectorArray
+            If return_residuals is True, contains the residuals. Else, empty.
+
+        """
+        
         SVr = self.SVr
         SF = self.SF
         residuals = SVr.range.empty()
@@ -269,6 +296,43 @@ class SketchedRom():
             if return_residuals:
                 residuals.append(residual)
         return errors, residuals
+
+    
+    def residual_norms_reduced(self, coefs, mus):
+        """
+        Compute the residual norms over mus using the online efficient 
+        representation of the squared residual norm.
+
+        Parameters
+        ----------
+        coefs : NumpyVectorArray
+            The reduced coefficients over mus.
+        mus : list of Mu
+            The parameters on which the residual norm is to be calculated.
+
+        Returns
+        -------
+        errors : np.ndarray
+            the relative errors, defined by the residual norm over the rhs norm.
+
+        """
+        SVr = self.SVr
+        SF = self.SF
+        M1 = lincomb_adjoint_compose_lincomb(SVr, SVr)
+        M2 = lincomb_adjoint_compose_lincomb(SVr, SF)
+        M3 = lincomb_adjoint_compose_lincomb(SF, SF)
+        errors = np.ones(len(mus))
+        
+        for i in range(len(mus)):
+            m3 = M3.as_range_array(mus[i]).real.to_numpy()[0,0]
+            error = M1.apply2(coefs[i], coefs[i], mu=mus[i]).real[0, 0] / m3
+            error = error + 1 - 2 * M2.apply_adjoint(coefs[i].conj(), mu=mus[i]).real.to_numpy()[0, 0] / m3
+            errors[i] = np.sqrt(max(0,error))
+        
+        return errors
+    
+
+        
 
     # def _extended_galerkin_system(self, SAr, Sbr, SU, SV):
     #     SUr = self.SUr

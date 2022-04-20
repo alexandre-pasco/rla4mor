@@ -107,7 +107,8 @@ class GaussianEmbedding(RandomEmbedding):
         else: 
             print('Wrong data-type. Considered as float.')
             a = 1
-        bound = 7.87 * self.epsilon * (a * 6.9 * self.oblivious_dim + np.log(1/self.delta))
+        bound = 7.87 * (1/self.epsilon**2) * (a * 6.9 * self.oblivious_dim + np.log(1/self.delta))
+        bound = int(np.ceil(bound))
         return bound
     
     
@@ -151,7 +152,8 @@ class GaussianEmbeddingRowWise(RandomEmbedding):
         else: 
             print('Wrong data-type. Considered as float.')
             a = 1
-        bound = 7.87 * self.epsilon * (a * 6.9 * self.oblivious_dim + np.log(1/self.delta))
+        bound = 7.87 * (1/self.epsilon**2) * (a * 6.9 * self.oblivious_dim + np.log(1/self.delta))
+        bound = int(np.ceil(bound))
         return bound
     
     
@@ -204,7 +206,8 @@ class RademacherEmbedding(RandomEmbedding):
         else: 
             print('Wrong data-type. Considered as float.')
             a = 1
-        bound = 7.87 * self.epsilon * (a * 6.9 * self.oblivious_dim + np.log(1/self.delta))
+        bound = 7.87 * (1/self.epsilon**2) * (a * 6.9 * self.oblivious_dim + np.log(1/self.delta))
+        bound = int(np.ceil(bound))
         return bound
     
     
@@ -259,6 +262,7 @@ class SrhtEmbedding(RandomEmbedding):
         bound = 2 / (eps**2 - eps**3/3)
         bound = bound * (np.sqrt(a*d) + np.sqrt(8*np.log(6*a*n/delta)))**2 
         bound = bound * np.log(3*a*d / delta)
+        bound = int(np.ceil(bound))
         return bound
     
     
