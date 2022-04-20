@@ -9,8 +9,9 @@ Created on Thu Apr 14 15:34:58 2022
 import numpy as np
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.operators.constructions import LincombOperator, ConcatenationOperator, AdjointOperator
-from pymor.parameters.functionals import ExpressionParameterFunctional, ConjugateParameterFunctional
+from pymor.parameters.functionals import ConstantParameterFunctional, ParameterFunctional, ExpressionParameterFunctional, ConjugateParameterFunctional
 from pymor.parameters.base import Mu
+
 
 def apply_affine(A, U):
     """
@@ -63,16 +64,17 @@ def op_compose_lincomb(A, B):
         The operator, which terms are [A @ B_i]
 
     """
-
-    operators = []
-    for op in B.operators:
-        operators.append(
-            NumpyMatrixOperator(
-                A.apply(op.as_range_array()).to_numpy().T,
-                source_id=B.source.id, range_id=A.range.id
+    if B is None: res = None
+    else:
+        operators = []
+        for op in B.operators:
+            operators.append(
+                NumpyMatrixOperator(
+                    A.apply(op.as_range_array()).to_numpy().T,
+                    source_id=B.source.id, range_id=A.range.id
+                    )
                 )
-            )
-    res = LincombOperator(operators, B.coefficients)
+        res = LincombOperator(operators, B.coefficients)
     return res
 
 def lincomb_compose_op_implicit(A,B):
@@ -135,7 +137,14 @@ def lincomb_adjoint_compose_lincomb(A, B):
                 A.operators[i].apply_adjoint(B.operators[j].as_range_array()).to_numpy().T,
                 source_id=B.source.id, range_id=A.source.id
                 )
-            coef = ConjugateParameterFunctional(A.coefficients[i]) * B.coefficients[j]
+            
+            # The ConjugateParameterFunctional needs a ParameterFunctional in input.
+            if not isinstance(A.coefficients[i], ParameterFunctional):
+                a = ConstantParameterFunctional(A.coefficients[i])
+            else:
+                a = A.coefficients[i]
+            a_H = ConjugateParameterFunctional(a)
+            coef = a_H * B.coefficients[j]
             operators.append(op)
             coefficients.append(coef)
     res = LincombOperator(operators, coefficients, name=A.name + '@' + B.name)
@@ -202,7 +211,7 @@ def lincomb_vector_complex_to_real(B):
     return B_block
 
 
-def lincomb_join(A, B):
+def lincomb_join(A, B, axis=0):
     """
     Concatenate the matrices of the operators in A and B to form a new
     LincombOperator, where A and B have the same number of affin terms.
@@ -232,9 +241,42 @@ def lincomb_join(A, B):
         for i in range(len(A.operators)):
            matA = A.operators[i].matrix
            matB = B.operators[i].matrix
-           mat = np.concatenate((matA, matB), axis=1)
+           mat = np.concatenate((matA, matB), axis=axis)
            op = NumpyMatrixOperator(mat, source_id=A.source.id, range_id=A.range.id)
            operators.append(op)
         result = LincombOperator(operators, A.coefficients)
     return result
 
+
+def lincomb_select_dofs(A, dofs, axis):
+    """
+    
+
+    Parameters
+    ----------
+    A : LincombOperator
+        
+    dofs : list of int
+        
+    axis : int
+        0 or 1.
+
+    Returns
+    -------
+    result : TYPE
+        DESCRIPTION.
+
+    """
+    
+    operators = []
+    if type(dofs) is int:
+        dofs = [dofs]
+    for op in A.operators:
+        if axis == 0:
+            mat = op.matrix[dofs,:]
+        if axis == 1:
+            mat = op.matrix[:,dofs]
+        op = NumpyMatrixOperator(mat, source_id=A.source.id, range_id=A.range.id)
+        operators.append(op)
+    result = LincombOperator(operators, A.coefficients)
+    return result

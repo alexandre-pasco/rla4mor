@@ -54,7 +54,6 @@ class SketchedRom():
         If full_basis is True, it is the full reduced basis. Else, it is None.
     full_basis : bool
         If True, the full basis will be stored.
-    
     """
     
     def __init__(self, lhs, rhs, embedding=None, output_functional=None, product=None, 
@@ -115,17 +114,38 @@ class SketchedRom():
         return lU
     
     
-    def add_vectors(self, U):
+    def add_vectors(self, U, projection=None):
         if self.SF is None :
             self.SF = self._sketch_rhs()
         if self.full_basis: 
             self.Ur.append(U)
-        self.SUr.append(self._sketch_u(U))
-        self.SVr = lincomb_join(self.SVr, self._sketch_sv(U))
+
+        SU = self._sketch_u(U)
+        SV = self._sketch_sv(U)
+        SVr_next = lincomb_join(self.SVr, SV, axis=1)   
+        self.SUr.append(SU)
+        self.SVr = SVr_next
         # TO DO: extending the reduced output functional
     
     
     def orthonormalize_basis(self, T=None, offset=0):
+        """
+        
+
+        Parameters
+        ----------
+        T : Operator, optional
+            The operator such as SUr @ T is orthonormal. If None, T is computed. 
+            The default is None.
+        offset : int, optional
+            If T is None, the offset for the gram-schmidt orthonormalization. 
+            The default is 0.
+
+        Returns
+        -------
+        None.
+
+        """
         if T is None:
             Q, R = gram_schmidt(self.SUr, offset=offset, return_R=True)
             T = InverseOperator(ImplicitLuOperator(csc_matrix(R)))
@@ -140,75 +160,135 @@ class SketchedRom():
 
         self.SVr = lincomb_compose_op_implicit(self.SVr,T)
 
+
     def from_sketch(self, sketch):
+        """
+        Generate the sketch from another SketchedRom by embedding the already 
+        embedded quantities of sketch
+
+        Parameters
+        ----------
+        sketch : SketchedRom
+            The SketchedRom to sketch again.
+
+        Returns
+        -------
+        None.
+
+        """
         embedding = self.embedding
         self.SUr = embedding.apply(sketch.SUr)
         self.SVr = op_compose_lincomb(embedding, sketch.SVr)
         self.SF = op_compose_lincomb(embedding, sketch.SF)
-    
-    
 
 
-from pymor.algorithms.greedy import WeakGreedySurrogate
+    def evaluate_residual(self, coef, mu, SVr=None, SF=None):
+        """
+        
 
-class SketchedSurrogate(WeakGreedySurrogate):
+        Parameters
+        ----------
+        coef : NumpyVectorArray
+            The coefficient of the reduced solution.
+        mu : Mu
+            
+        SVr : Operator, optional
+            Can be passed as argument if already assembled. The default is None.
+        SF : Operator, optional
+            Can be passed in agrument if already assembled. The default is None.
+
+        Returns
+        -------
+        residual : NumpyVectorArray
+            The sketched residual corresponding to the reduced solution.
+
+        """
+        if SVr is None or SF is None:
+            SVr = self.SVr
+            SF = self.SF
+        residual = SVr.apply(coeff, mu) - SF.as_range_array(mu)
+        return residual
     
-    def __init__(self, lhs, rhs, embedding=None, output_functional=None, product=None, 
-                 cholesky_product=None, cholesky_ordering='default', full_basis=False):
-        
-        self.sketched_rom = SketchedRom(
-            lhs, rhs, embedding, output_functional, product, 
-            cholesky_product, cholesky_ordering, full_basis
-            )
     
-    def evaluate(self, mus, return_all_values=False):
-        # Provisional. Only Galerkin for now
-        # sketch = self.sketched_rom
-        # SUr = sketch.SUr
-        # SVr = sketch.SVr
-        # SF = sketch.SF
-        # op = AdjointOperator(NumpyMatrixOperator(SUr.to_numpy().T, source_id=SVr.range.id))
-        # Ar = op_compose_lincomb(op, SVr)
-        # br = op_compose_lincomb(op, SF) 
+    def rb_projection(self, mus, projection):
+        coefs = self.SVr.source.empty()
+        ls = False
         
-        # errors = []
-        
-        # for mu in mus:
-        #     A = Ar.assemble(mu).matrix
-        #     b = br.assemble(mu).matrix
-        #     coef, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-        #     ar = SVr.source.from_numpy(coef.T)
-        #     residual = SVr.apply(ar, mu) - SF.as_range_array(mu)
-        #     err = residual.norm()[0]
-        #     errors.append(err)
-        
-        # if return_all_values:
-        #     result = np.array(errors)
-        # else:
-        #     ind = np.argmax(errors)
-        #     result = (errors[ind], mus[ind])
-        
-        # return result
-        pass
-    
-    def extend(self, mu, U=None):
-        if isinstance(mu, list):
-            mus = mu
+        if projection == 'galerkin': 
+            red_lhs, red_rhs = self._galerkin_system()
+        elif projection == 'minres_ls':
+            red_lhs, red_rhs = self._minres_ls_system()
+            ls = True
+        elif projection == 'minres_normal':
+            red_lhs, red_rhs = self._minres_normal_system()
         else:
-            mus = [mu]
+            print("Projection not valid. Galerkin projection performed")
 
-        if U is None:
-            lhs = self.sketched_rom.lhs
-            rhs = self.sketched_rom.rhs
-            U = lhs.source.empty()
-            for i in range(len(mus)):
-                b = rhs.as_range_array(mus[i])
-                U.append(lhs.apply_inverse(b, mus[i]))
+        for mu in mus:
+            # compute the reduced solutions
+            coef = red_lhs.apply_inverse(red_rhs.as_range_array(mu), mu, least_squares=(ls))
+            coefs.append(coef)
+        return coefs
 
-        r = len(self.sketched_rom.SUr)
-        self.sketched_rom.add_vectors(U)
-        self.sketched_rom.orthonormalize_basis(offset=r)
+
+    def _galerkin_system(self):
+        SUr = self.SUr
+        SVr = self.SVr
+        SF = self.SF
+        op = NumpyMatrixOperator(SUr.to_numpy().conj(), source_id=SVr.range.id, range_id=SVr.source.id)
+        reduced_lhs = op_compose_lincomb(op, SVr)
+        reduced_rhs = op_compose_lincomb(op, SF)
+        return reduced_lhs, reduced_rhs
+
+
+    def _minres_ls_system(self):
+        reduced_lhs = self.SVr
+        reduced_rhs = self.SF
+        return reduced_lhs, reduced_rhs
         
+        
+    def _minres_normal_system(self):
+        SVr = self.SVr
+        SF = self.SF
+        reduced_lhs = lincomb_adjoint_compose_lincomb(SVr, SVr)
+        reduced_rhs = lincomb_adjoint_compose_lincomb(SVr, SF)
+        return reduced_lhs, reduced_rhs
+
+    def error_estimator(self, coefs, mus, return_residuals=False):
+        assert len(mus) == len(coefs)
+        SVr = self.SVr
+        SF = self.SF
+        residuals = SVr.range.empty()
+        errors = np.ones(len(mus))
+        
+        for i in range(len(mus)):
+            SF_mu = SF.as_range_array(mus[i])
+            residual = SVr.apply(coefs[i], mus[i]) - SF_mu
+            error = residual.norm()[0] / SF_mu.norm()[0]
+            errors[i] = error
+            if return_residuals:
+                residuals.append(residual)
+        return errors, residuals
+
+    # def _extended_galerkin_system(self, SAr, Sbr, SU, SV):
+    #     SUr = self.SUr
+    #     SVr = self.SVr
+    #     SVr_next = lincomb_join(self.SVr, SV, axis=1)
+        
+    #     op_col = NumpyMatrixOperator(SUr.to_numpy().conj(), source_id=SV.range.id, range_id=SV.source.id)
+    #     op_row = NumpyMatrixOperator(SU.to_numpy().conj(), source_id=SV.range.id, range_id=SV.source.id)
+        
+    #     new_cols = op_compose_lincomb(op_col, SVr)
+    #     new_rows = op_compose_lincomb(op_row, SVr_next)
+        
+    #     SAr_bis = lincomb_join(SAr, new_cols, axis=1)
+    #     SAr_next = lincomb_join(SAr_bis, new_rows, axis=0)
+        
+    #     Sbr_next = lincomb_join(Sbr, op_compose_lincomb(op_row, self.SF), axis=0)
+        
+    #     return SAr_next, Sbr_next
+        
+
         
         
         
