@@ -31,6 +31,8 @@ class RandomEmbedding(Operator):
         delta and relative error epsilon
     dtype : data-type
         The data type, float' or complex.
+    _matrix : np.ndarray
+        The full matrix.
     _seed : int
         If implemented, the seed for the random operator.
     _update : bool
@@ -62,6 +64,12 @@ class RandomEmbedding(Operator):
 
         """
         pass
+    
+    
+    @abstractmethod
+    def get_matrix(self):
+        pass
+    
     
     def set_seed(self, seed=None):
         """
@@ -144,6 +152,7 @@ class GaussianEmbeddingRowWise(RandomEmbedding):
         else :
             embedding_dim = self.compute_dim()
         self.range = NumpyVectorSpace(embedding_dim, range_id)
+        self._matrix = None
 
 
     def compute_dim(self):
@@ -174,12 +183,20 @@ class GaussianEmbeddingRowWise(RandomEmbedding):
     
     
     def get_matrix(self):
+        if self._matrix is None:
+            self._matrix = self._compute_matrix()
+        mat = self._matrix
+        return mat
+    
+    
+    def _compute_matrix(self):
         n = self.source.dim
         k = self.range.dim
         mat = np.zeros((k,n))
         for i in range(k):
             gauss = np.random.RandomState(self._seed + i).normal(size=n, loc=0, scale=1)
             mat[i,:] = gauss / np.sqrt(k)
+        self._matrix = mat
         return mat
 
 
@@ -198,6 +215,7 @@ class RademacherEmbedding(RandomEmbedding):
             embedding_dim = self.compute_dim()
         self.source = NumpyVectorSpace(source_dim, source_id)
         self.range = NumpyVectorSpace(embedding_dim, range_id)
+        self._matrix = None
 
 
     def compute_dim(self):
@@ -226,14 +244,22 @@ class RademacherEmbedding(RandomEmbedding):
     def update(self):
         pass
 
-    
+
     def get_matrix(self):
+        if self._matrix is None:
+            self._matrix = self._compute_matrix()
+        mat = self._matrix
+        return mat
+
+    
+    def _compute_matrix(self):
         n = self.source.dim
         k = self.range.dim
         mat = np.zeros((k,n))
         for i in range(k):
             rademacher = np.random.RandomState(self._seed + i).choice([-1, 1], n, replace=True)
             mat[i,:] = rademacher / np.sqrt(k)
+        self._matrix = mat
         return mat
     
     
@@ -253,6 +279,7 @@ class SrhtEmbedding(RandomEmbedding):
         else :
             embedding_dim = self.compute_dim()
         self.range = NumpyVectorSpace(embedding_dim, range_id)
+        self._matrix = None
 
 
     def compute_dim(self):
@@ -272,7 +299,8 @@ class SrhtEmbedding(RandomEmbedding):
 
         Parameters
         ----------
-        x : ndarray
+        x : ndarray 
+            Array of shape (k,N), viewed as k vectors of size N.
 
         Returns
         -------
@@ -324,9 +352,66 @@ class SrhtEmbedding(RandomEmbedding):
         pass
     
     
-def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None, delta=None, 
-             oblivious_dim=None, seed=None, dtype=float, source_id=None, 
-             range_id=None, solver_option=None):
+    def get_cols(self, indices):
+        x = np.zeros((len(indices), self.source.dim))
+        for i in indices:
+            x[i,indices[i]] = 1
+        result = self.srht_real(x)
+        return result.T
+    
+    
+    def get_matrix(self):
+        if self._matrix is None:
+            self._matrix = self._compute_matrix()
+        mat = self._matrix
+        return mat
+        
+    
+    def _compute_matrix(self):
+        n = self.source.dim
+        k = self.range.dim
+        d = int(np.ceil(np.log2(n)))
+        rademacher = np.random.RandomState(self._seed).choice([-1, 1], n, replace=True)
+        sampling = np.random.RandomState(self._seed).choice(range(2**d), k, replace=True)
+        mat = np.zeros((k,n))
+        
+        for i in range(k):
+            h_row = self._get_hadamard_row(sampling[i])
+            row = h_row * rademacher / np.sqrt(k)
+            mat[i] = row
+
+        return mat
+    
+    
+    def _get_hadamard_row(self, n):
+        """
+        Compute the n-th row of the truncated Hadamard matrix.
+
+        Parameters
+        ----------
+        n : int
+            The row to compute
+
+        Returns
+        -------
+        row : np.array
+            array of size (self.source.dim,)
+
+        """
+        row = np.zeros(self.source.dim)
+        for i in range(self.source.dim):
+            b = binary_inner(n, i)
+            if b%2 == 0:
+                row[i] = 1
+            else : 
+                row[i] = -1
+        return row
+        
+        
+    
+def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None, 
+                       delta=None, oblivious_dim=None, seed=None, dtype=float, 
+                       source_id=None, range_id=None, solver_option=None):
     kwargs = locals()
     _ = kwargs.pop('embedding_type')
     if embedding_type == 'srht':
@@ -342,3 +427,41 @@ def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None, 
         embedding = GaussianEmbedding(**kwargs)
     return embedding
 
+
+
+def binary_inner(a,b):
+    """
+    Return the inner product of the binary vectors associated with a and b.
+
+    Parameters
+    ----------
+    a : int
+        
+    b : int
+    
+
+    Returns
+    -------
+    res : int
+        
+
+    """
+    a_bin, b_bin = bin(a), bin(b)
+    i = 1
+    ai, bi = a_bin[-i], b_bin[-i]
+    res = 0
+    while ai != 'b' and bi != 'b':
+        res = res + int(ai) * int(bi)
+        i += 1
+        ai, bi = a_bin[-i], b_bin[-i]
+    return res
+
+if __name__ == '__main__':
+    
+    embedding = SrhtEmbedding(source_dim=100, range_dim = 20)
+    u = embedding.source.from_numpy(np.random.normal(size=embedding.source.dim))
+    mat = embedding.get_matrix()
+    v = embedding.apply(u).to_numpy().T
+    w = np.dot(mat, u.to_numpy().T)
+    err = v-w
+    print(np.linalg.norm(err) / np.linalg.norm(v))

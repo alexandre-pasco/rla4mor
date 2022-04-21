@@ -14,7 +14,7 @@ from pymor.operators.numpy import NumpyMatrixOperator
 
 import ffht
 from sksparse.cholmod import cholesky
-from scipy.sparse.linalg import splu
+from scipy.sparse.linalg import splu, LinearOperator
 
 
 class CholeskyOperator(Operator):
@@ -102,7 +102,7 @@ class ImplicitLuOperator(Operator):
         self.linear = True
         self.source = NumpyVectorSpace(matrix.shape[1], source_id)
         self.range = NumpyVectorSpace(matrix.shape[0], range_id)
-        self.slu = splu(matrix, permc_spec=permc_spec)
+        self.factorization = splu(matrix, permc_spec=permc_spec)
 
 
     def apply(self, U, mu=None):
@@ -112,7 +112,7 @@ class ImplicitLuOperator(Operator):
     
     def apply_inverse(self, U, mu=None):
         assert U in self.range
-        slu = self.slu
+        slu = self.factorization
         result = slu.solve(U.to_numpy().T)
         return self.source.from_numpy(result.T)
     
@@ -124,6 +124,30 @@ class ImplicitLuOperator(Operator):
     
     def apply_inverse_adjoint(self, U, mu=None):
         assert U in self.range
-        slu = self.slu
+        slu = self.factorization
         result = slu.solve(U.to_numpy().T, trans='H')
         return self.source.from_numpy(result.T)
+    
+    
+class InverseLu(LinearOperator):
+    """
+    Class used as the preconditionner for scipy iterative solvers.
+    """
+    def __init__(self, dtype, factorization):
+
+        self.dtype = dtype
+        self.shape = factorization.shape
+        self.factorization = factorization
+    
+    
+    def _matvec(self, x):
+        slu = self.factorization
+        return slu.solve(x)
+    
+    
+    def _rmatvec(self, x):
+        slu = self.factorization
+        return slu.solve(x, trans='H')
+        
+        
+        
