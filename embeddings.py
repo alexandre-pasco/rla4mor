@@ -12,6 +12,7 @@ from pymor.operators.constructions import Operator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
+from scipy.sparse import eye
 import ffht
 
 
@@ -35,8 +36,6 @@ class RandomEmbedding(Operator):
         The full matrix.
     _seed : int
         If implemented, the seed for the random operator.
-    _update : bool
-        True if the embedding needs to be updated due to a seed change.
     """
     
 
@@ -91,7 +90,7 @@ class RandomEmbedding(Operator):
         self._seed = new_seed
         self.update()
     
-    
+
 class GaussianEmbedding(RandomEmbedding):
     
     def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
@@ -408,6 +407,40 @@ class SrhtEmbedding(RandomEmbedding):
         return row
         
         
+class IdentityEmbedding(RandomEmbedding):
+
+    def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
+                 oblivious_dim=None, seed=None, dtype=float, source_id=None, 
+                 range_id=None, solver_option=None, name='identity'):
+        
+        self.__auto_init(locals())
+        self.source = NumpyVectorSpace(source_dim, source_id)
+        self.range = NumpyVectorSpace(source_dim, range_id)
+        self.epsilon = 0,
+        self.delta = 0,
+        self.oblivious_dim = source_dim
+        self.name = name
+        self.linear = True
+        self._matrix = None
+
+    def compute_dim(self):
+        return self.source.dim
+    
+    
+    def apply(self, U, mu=None):
+        return self.range.from_numpy(U.to_numpy())
+    
+    
+    def update(self):
+        pass
+    
+    
+    def get_matrix(self):
+        if self._matrix is None:
+            self._matrix = eye(self.source.dim)
+        return self._matrix
+    
+    
     
 def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None, 
                        delta=None, oblivious_dim=None, seed=None, dtype=float, 
@@ -422,6 +455,8 @@ def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None,
         embedding = GaussianEmbeddingRowWise(**kwargs)
     elif embedding_type == 'gaussian':
         embedding = GaussianEmbedding(**kwargs)
+    elif embedding_type == 'identity':
+        embedding = IdentityEmbedding(**kwargs)
     else:
         print("Embedding type note implemented, gaussian used.")
         embedding = GaussianEmbedding(**kwargs)

@@ -149,8 +149,10 @@ class SketchedRom():
         """
         if T is None:
             Q, R = gram_schmidt(self.SUr, offset=offset, return_R=True)
-            T = InverseOperator(ImplicitLuOperator(csc_matrix(R)))
-            self.SUr = Q
+            T = ImplicitInverseOperator(
+                csc_matrix(R), source_id=self.primal_sketch.SVr.source.id, 
+                range_id=self.primal_sketch.lhs.source.id
+                )
         else:
             SUr_H = T.apply_adjoint(T.source.from_numpy(self.SUr.to_numpy().conj().T))
             self.SUr = self.SUr.space.from_numpy(SUr_H.to_numpy().conj().T)
@@ -185,7 +187,7 @@ class SketchedRom():
         self.SF = op_compose_lincomb(embedding, sketch.SF)
 
     
-    def project(self, mus, projection):
+    def solve_rom(self, mus, projection):
         if projection in ('galerkin', 'minres_ls', 'minres_normal'):
             coefs, times = self.rb_projection(mus, projection)
         return coefs, times
@@ -352,7 +354,17 @@ class SketchedRom():
         
     #     return SAr_next, Sbr_next
         
+    
+    def sparse_projection(self, mus, projection):
+        if self.SVr is None:
+            times = {'offline_assembling': 0., 'rom_solving': 0., 'offline_assembling': 0.}
+            coefs = None
+        else:
+            coefs, times = self._sparse_projection(mus, projection)
+        return coefs, times
 
-        
+    def _sparse_projection(self, mus, projection):
+        print("Not implemented yet")
+        pass
         
         

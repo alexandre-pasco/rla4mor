@@ -10,6 +10,7 @@ from pymor.algorithms.greedy import WeakGreedySurrogate
 
 import numpy as np
 from time import perf_counter
+from scipy.sparse import csc_matrix
 
 from affine_operations import *
 from other_operators import *
@@ -52,7 +53,10 @@ class SketchedSurrogate(WeakGreedySurrogate):
     
     def orthonormalize_basis(self, offset=0):
         Q, R = gram_schmidt(self.primal_sketch.SUr, offset=offset, return_R=True, reiterate=False)
-        T = InverseOperator(ImplicitLuOperator(csc_matrix(R)))
+        T = ImplicitInverseOperator(
+            csc_matrix(R), source_id=self.primal_sketch.SVr.source.id, 
+            range_id=self.primal_sketch.lhs.source.id
+            )
         self.primal_sketch.orthonormalize_basis(T=T)
         self.certif_sketch.orthonormalize_basis(T=T)
     
@@ -65,17 +69,28 @@ class SketchedSurrogate(WeakGreedySurrogate):
         pass
     
     
-    def project(self, mus):
+    def solve_rom(self, mus):
         if self.projection == 'galerkin':
-            coefs, times = self.primal_sketch.project(mus, self.projection)
+            coefs, times = self.primal_sketch.solve_rom(mus, self.projection)
         else:
-            coefs, times = self.online_sketch.project(mus, self.projection)
+            coefs, times = self.online_sketch.solve_rom(mus, self.projection)
         return coefs, times
+    
+    
+    def solve_fom(self, mus):
+        U = self.primal_sketch.lhs.source.empty()
+        for mu in mus:
+            b = self.primal_sketch.rhs.as_range_array(mu)
+            u = self.primal_sketch.lhs.apply_inverse(b, mu)
+            U.append(u)
+        return U
     
     
     def weak_greedy(self, r_max, tol, mu_train=None, U_train=None, n_train=None, 
                     n_per_iter=1, ortho_basis=True, mu_generator=None):
         
+        if not mu_train is None:
+            mu_train = np.array(mu_train)
         t_deb = perf_counter()
         lhs = self.primal_sketch.lhs
         rhs = self.primal_sketch.rhs
@@ -106,7 +121,7 @@ class SketchedSurrogate(WeakGreedySurrogate):
             times['online_sketch_generation'] = perf_counter() - tic
             
             # Evaluating the errors on the training set with the provisional rom.
-            coefs, times_online = self.project(mu_train)
+            coefs, times_online = self.solve_rom(mu_train)
             tic = perf_counter()
             errors_online, _ = self.online_sketch.residual_norms(coefs, mu_train)
             t_error = perf_counter() - tic
@@ -132,23 +147,17 @@ class SketchedSurrogate(WeakGreedySurrogate):
             print(f"  Max certif error : {max_errors_certif[-1]:.3e}")
             
             # Spot the n_per_iter biggest errors
-            indices_added = np.argsort(errors_online)[-n_per_iter:]
+            indices_added = list(np.argsort(errors_online)[-n_per_iter:])
             max_err = errors_online[indices_added[-1]]
             max_errors.append(max_err)
             print(f"  Maximal error : {max_err:.3e}")
             
-            # Computing the snapshots (if U_train is None) 
+            # Computing the snapshots (if U_train is None)
             tic = perf_counter()
-            U_add = lhs.source.empty()
-            for i in indices_added:
-                mu_added.append(mu_train[i])
-                if U_train is None:
-                    mu = mu_train[i]
-                    b = rhs.as_range_array(mu)
-                    U = lhs.apply_inverse(b, mu=mu)
-                    U_add.append(U)
-                else:
-                    U_add.append(U_train[i])
+            if U_train is None:
+                U_add = self.solve_fom(mu_train[indices_added])
+            else:
+                U_add = U_train[indices_added]
 
             t = perf_counter() - tic
             times['exact_solving'].append(t)

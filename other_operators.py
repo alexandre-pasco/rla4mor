@@ -82,7 +82,7 @@ class CholeskyOperator(Operator):
         return factor.apply_Pt(factor.L())
 
 
-class ImplicitLuOperator(Operator):
+class ImplicitInverseOperator(Operator):
     """
     
     An operator obtained by performing a LU factorization of a sparse 
@@ -93,41 +93,41 @@ class ImplicitLuOperator(Operator):
     ---------
     matrix : scipy.sparse.csc_matrix or scipy.sparse.csr_matrix
         The matrix to factorize.
-    slu : scipy.sparse.linalg.SuperLU
+    factorization : scipy.sparse.linalg.SuperLU
         
     """
-    def __init__(self, matrix, permc_spec="COLAMD", source_id=None, 
+    def __init__(self, matrix, factorization=None, permc_spec="COLAMD", source_id=None, 
                  range_id=None, name=None):
         self.__auto_init(locals())
         self.linear = True
         self.source = NumpyVectorSpace(matrix.shape[1], source_id)
         self.range = NumpyVectorSpace(matrix.shape[0], range_id)
-        self.factorization = splu(matrix, permc_spec=permc_spec)
+        if factorization is None:
+            self.factorization = splu(matrix, permc_spec=permc_spec)
 
 
     def apply(self, U, mu=None):
-        operator = NumpyMatrixOperator(self.matrix, self.source_id, self.range_id)
-        return operator.apply(U)
-    
-    
-    def apply_inverse(self, U, mu=None):
         assert U in self.range
         slu = self.factorization
         result = slu.solve(U.to_numpy().T)
         return self.source.from_numpy(result.T)
     
-    
-    def apply_adjoint(self, U, mu=None):
-        operator = NumpyMatrixOperator(self.matrix, self.source_id, self.range_id)
-        return operator.apply_adjoint(U)
-    
-    
-    def apply_inverse_adjoint(self, U, mu=None):
+    def apply_adjoint(self, U):
         assert U in self.range
         slu = self.factorization
         result = slu.solve(U.to_numpy().T, trans='H')
         return self.source.from_numpy(result.T)
-    
+
+
+    def apply_inverse(self, U, mu=None):
+        operator = NumpyMatrixOperator(self.matrix, self.source_id, self.range_id)
+        return operator.apply(U)
+
+
+    def apply_inverse_adjoint(self, U, mu=None):
+        operator = NumpyMatrixOperator(self.matrix, self.source_id, self.range_id)
+        return operator.apply_adjoint(U)
+
     
 class InverseLu(LinearOperator):
     """
@@ -150,4 +150,16 @@ class InverseLu(LinearOperator):
         return slu.solve(x, trans='H')
         
         
-        
+class ScipyLinearOperator(LinearOperator):
+    
+    def __init__(self, operator):
+        self.operator = operator
+        self.shape = (operator.range.dim, operator.source.dim)
+    
+    def _matvec(self, x):
+        u = self.operator.source.from_numpy(x)
+        return self.operator.apply(u).to_numpy().reshape(-1)
+    
+    def _rmatvec(self, x):
+        u = self.operator.range.from_numpy(x)
+        return self.operator.apply_adjoint(u).to_numpy().reshape(-1)
