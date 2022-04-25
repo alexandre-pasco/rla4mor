@@ -148,9 +148,10 @@ class SketchedRom():
 
         """
         if T is None:
+            dtype = self.primal_sketch.SUr.to_numpy().dtype
             Q, R = gram_schmidt(self.SUr, offset=offset, return_R=True)
             T = ImplicitInverseOperator(
-                csc_matrix(R), source_id=self.primal_sketch.SVr.source.id, 
+                csc_matrix(R, dtype=dtype), source_id=self.primal_sketch.SVr.source.id, 
                 range_id=self.primal_sketch.lhs.source.id
                 )
         else:

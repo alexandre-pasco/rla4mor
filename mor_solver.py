@@ -52,9 +52,10 @@ class SketchedSurrogate(WeakGreedySurrogate):
     
     
     def orthonormalize_basis(self, offset=0):
+        dtype = self.primal_sketch.SUr.to_numpy().dtype
         Q, R = gram_schmidt(self.primal_sketch.SUr, offset=offset, return_R=True, reiterate=False)
         T = ImplicitInverseOperator(
-            csc_matrix(R), source_id=self.primal_sketch.SVr.source.id, 
+            csc_matrix(R, dtype=dtype), source_id=self.primal_sketch.SVr.source.id, 
             range_id=self.primal_sketch.lhs.source.id
             )
         self.primal_sketch.orthonormalize_basis(T=T)
