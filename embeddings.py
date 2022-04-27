@@ -164,7 +164,7 @@ class GaussianEmbedding(RandomEmbedding):
     
     
     def apply(self, U, mu=None):
-        gauss = self._matrix
+        gauss = self._random_matrix
         Q = self.sqrt_product
         op = NumpyMatrixOperator(gauss, source_id=Q.range.id, range_id=self.range.id)
         return op.apply(Q.apply(U))
