@@ -8,7 +8,7 @@ Created on Wed Apr 13 16:06:59 2022
 
 import numpy as np
 from pymor.core.base import abstractmethod
-from pymor.operators.constructions import Operator
+from pymor.operators.constructions import Operator, IdentityOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
@@ -18,7 +18,7 @@ import ffht
 
 class RandomEmbedding(Operator):
     """
-    Random Embedding
+    Class implementing a random embedding.
     
     Attibutes
     ---------
@@ -32,6 +32,9 @@ class RandomEmbedding(Operator):
         delta and relative error epsilon
     dtype : data-type
         The data type, float' or complex.
+    sqrt_product : Operator
+        An operator Q such as Q^H @ Q = Ru, with Ru is a positive definite,
+        self adjoint operator, for example a stifness matrix.
     _matrix : np.ndarray
         The full matrix.
     _seed : int
@@ -95,18 +98,20 @@ class GaussianEmbedding(RandomEmbedding):
     
     def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
                  oblivious_dim=None, dtype=float, source_id=None, range_id=None, 
-                 solver_option=None, name='gaussian', _seed=None):
+                 solver_option=None, sqrt_product=None, name='gaussian', _seed=None):
         
         self.__auto_init(locals())
         self.linear = True
         self.source = NumpyVectorSpace(source_dim, source_id)
+        if sqrt_product is None:
+            self.sqrt_product = IdentityOperator(self.source)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
         else :
             embedding_dim = self.compute_dim()
         self.range = NumpyVectorSpace(embedding_dim, range_id)
         self.set_seed(_seed)
-
+        
 
     def compute_dim(self):
         if self.dtype is float: a = 1
@@ -121,8 +126,9 @@ class GaussianEmbedding(RandomEmbedding):
     
     def apply(self, U, mu=None):
         gauss = self._matrix
-        op = NumpyMatrixOperator(gauss, source_id=self.source.id, range_id=self.range.id)
-        return op.apply(U)
+        Q = self.sqrt_product
+        op = NumpyMatrixOperator(gauss, source_id=Q.range.id, range_id=self.range.id)
+        return op.apply(Q.apply(U))
     
     
     def update(self):
@@ -140,12 +146,14 @@ class GaussianEmbeddingRowWise(RandomEmbedding):
     
     def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
                  oblivious_dim=None, dtype=float, source_id=None, range_id=None, 
-                 solver_option=None, name='gaussian_row_wise', _seed=None):
+                 solver_option=None, sqrt_product=None, name='gaussian_row_wise', _seed=None):
         
         self.__auto_init(locals())
         self.linear = True
         self.set_seed(_seed)
         self.source = NumpyVectorSpace(source_dim, source_id)
+        if sqrt_product is None:
+            self.sqrt_product = IdentityOperator(self.source)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
         else :
@@ -166,13 +174,13 @@ class GaussianEmbeddingRowWise(RandomEmbedding):
     
     
     def apply(self, U, mu=None):
-        U_np = U.to_numpy().T
-        n = self.source.dim
+        QU = self.sqrt_product.apply(U).to_numpy().T
+        n = self.sqrt_product.range.dim
         k = self.range.dim
-        result = np.zeros((k, U_np.shape[1]), self.dtype)
+        result = np.zeros((k, QU.shape[1]), self.dtype)
         for i in range(k):
             gauss = np.random.RandomState(self._seed + i).normal(size=n, loc=0, scale=1)
-            result[i,:] = np.dot(gauss, U_np)
+            result[i,:] = np.dot(gauss, QU)
         result = result / np.sqrt(k)
         return self.range.from_numpy(result.T)
     
@@ -203,16 +211,18 @@ class RademacherEmbedding(RandomEmbedding):
     
     def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
                  oblivious_dim=None, dtype=float, source_id=None, range_id=None, 
-                 solver_option=None, name='rademacher', _seed=None):
+                 solver_option=None, sqrt_product=None, name='rademacher', _seed=None):
         
         self.__auto_init(locals())
         self.linear = True
         self.set_seed(_seed)
+        self.source = NumpyVectorSpace(source_dim, source_id)
+        if sqrt_product is None:
+            self.sqrt_product = IdentityOperator(self.source)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
         else :
             embedding_dim = self.compute_dim()
-        self.source = NumpyVectorSpace(source_dim, source_id)
         self.range = NumpyVectorSpace(embedding_dim, range_id)
         self._matrix = None
 
@@ -229,13 +239,13 @@ class RademacherEmbedding(RandomEmbedding):
     
     
     def apply(self, U, mu=None):
-        U_np = U.to_numpy().T
-        n = self.source.dim
+        QU = self.sqrt_product.apply(U).to_numpy().T
+        n = self.sqrt_product.range.dim
         k = self.range.dim
-        result = np.zeros((k, U_np.shape[1]), dtype=self.dtype)
+        result = np.zeros((k, QU.shape[1]), dtype=self.dtype)
         for i in range(k):
             rademacher = np.random.RandomState(self._seed + i).choice([-1, 1], n, replace=True)
-            result[i,:] = np.dot(rademacher, U_np)
+            result[i,:] = np.dot(rademacher, QU)
         result = result / np.sqrt(k)
         return self.range.from_numpy(result.T)
     
@@ -266,13 +276,15 @@ class SrhtEmbedding(RandomEmbedding):
     
     def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
                  oblivious_dim=None, seed=None, dtype=float, source_id=None, 
-                 range_id=None, solver_option=None, name='srht'):
+                 range_id=None, solver_option=None, sqrt_product=None, name='srht', _seed=None):
         
         assert dtype in (float, complex)
         self.linear = True
         self.__auto_init(locals())
-        self.set_seed(seed)
+        self.set_seed(_seed)
         self.source = NumpyVectorSpace(source_dim, source_id)
+        if sqrt_product is None:
+            self.sqrt_product = IdentityOperator(self.source)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
         else :
@@ -311,7 +323,7 @@ class SrhtEmbedding(RandomEmbedding):
         assert x.ndim <= 2
         if x.ndim == 1: x = x.reshape((1, -1))
             
-        n = self.source.dim
+        n = self.sqrt_product.range.dim
         k = self.range.dim
         d = int(np.ceil(np.log2(n)))
         rademacher = np.random.RandomState(self._seed).choice([-1, 1], n, replace=True)
@@ -344,19 +356,12 @@ class SrhtEmbedding(RandomEmbedding):
     
     def apply(self, U, mu=None):
         assert U in self.source
-        return self.range.from_numpy(self.srht(U.to_numpy()))
+        QU = self.sqrt_product.apply(U)
+        return self.range.from_numpy(self.srht(QU.to_numpy()))
     
     
     def update(self):
         pass
-    
-    
-    def get_cols(self, indices):
-        x = np.zeros((len(indices), self.source.dim))
-        for i in indices:
-            x[i,indices[i]] = 1
-        result = self.srht_real(x)
-        return result.T
     
     
     def get_matrix(self):
@@ -367,51 +372,73 @@ class SrhtEmbedding(RandomEmbedding):
         
     
     def _compute_matrix(self):
-        n = self.source.dim
+        # n = self.source.dim
+        # k = self.range.dim
+        # d = int(np.ceil(np.log2(n)))
+        # rademacher = np.random.RandomState(self._seed).choice([-1, 1], n, replace=True)
+        # sampling = np.random.RandomState(self._seed).choice(range(2**d), k, replace=True)
+        # mat = np.zeros((k,n))
+        
+        # for i in range(k):
+        #     h_row = self._get_hadamard_row(sampling[i])
+        #     row = h_row * rademacher / np.sqrt(k)
+        #     mat[i] = row
+        mat = self._get_rows([i for i in range(self.range.dim)])
+        return mat
+    
+    
+    def _get_rows(self, indices):
+        n = self.sqrt_product.range.dim
         k = self.range.dim
         d = int(np.ceil(np.log2(n)))
         rademacher = np.random.RandomState(self._seed).choice([-1, 1], n, replace=True)
         sampling = np.random.RandomState(self._seed).choice(range(2**d), k, replace=True)
-        mat = np.zeros((k,n))
+        if hasattr(ffht, 'fht_'): ht = ffht.fht_
+        else: ht = ffht.fht
+
+        P = np.zeros((len(indices), 2**d))
+        for i in range(len(indices)):
+            P[i, sampling[i]] = 1
+
+        for Pi in P:
+            # Applying the inplace Fast Hadamard Transform
+            ht(Pi)
+
+        DHP = np.sqrt(1/k) * P[:,:n] * rademacher
+        return DHP
         
-        for i in range(k):
-            h_row = self._get_hadamard_row(sampling[i])
-            row = h_row * rademacher / np.sqrt(k)
-            mat[i] = row
-
-        return mat
     
     
-    def _get_hadamard_row(self, n):
-        """
-        Compute the n-th row of the truncated Hadamard matrix.
+    # def _get_hadamard_row(self, n):
+    #     """
+    #     Compute the n-th row of the truncated Hadamard matrix.
 
-        Parameters
-        ----------
-        n : int
-            The row to compute
+    #     Parameters
+    #     ----------
+    #     n : int
+    #         The row to compute
 
-        Returns
-        -------
-        row : np.array
-            array of size (self.source.dim,)
+    #     Returns
+    #     -------
+    #     row : np.array
+    #         array of size (self.source.dim,)
 
-        """
-        row = np.zeros(self.source.dim)
-        for i in range(self.source.dim):
-            b = binary_inner(n, i)
-            if b%2 == 0:
-                row[i] = 1
-            else : 
-                row[i] = -1
-        return row
+    #     """
+    #     row = np.zeros(self.source.dim)
+    #     for i in range(self.source.dim):
+    #         b = binary_inner(n, i)
+    #         if b%2 == 0:
+    #             row[i] = 1
+    #         else : 
+    #             row[i] = -1
+    #     return row
         
         
 class IdentityEmbedding(RandomEmbedding):
 
     def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
                  oblivious_dim=None, seed=None, dtype=float, source_id=None, 
-                 range_id=None, solver_option=None, name='identity'):
+                 range_id=None, solver_option=None, sqrt_product=None, name='identity', _seed=None):
         
         self.__auto_init(locals())
         self.source = NumpyVectorSpace(source_dim, source_id)
@@ -464,32 +491,88 @@ def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None,
 
 
 
-def binary_inner(a,b):
-    """
-    Return the inner product of the binary vectors associated with a and b.
+# def binary_inner(a,b):
+#     """
+#     Return the inner product of the binary vectors associated with a and b.
 
-    Parameters
-    ----------
-    a : int
+#     Parameters
+#     ----------
+#     a : int
         
-    b : int
+#     b : int
     
 
-    Returns
-    -------
-    res : int
+#     Returns
+#     -------
+#     res : int
         
 
-    """
-    a_bin, b_bin = bin(a), bin(b)
-    i = 1
-    ai, bi = a_bin[-i], b_bin[-i]
-    res = 0
-    while ai != 'b' and bi != 'b':
-        res = res + int(ai) * int(bi)
-        i += 1
-        ai, bi = a_bin[-i], b_bin[-i]
-    return res
+#     """
+#     a_bin, b_bin = bin(a), bin(b)
+#     i = 1
+#     ai, bi = a_bin[-i], b_bin[-i]
+#     res = 0
+#     while ai != 'b' and bi != 'b':
+#         res = res + int(ai) * int(bi)
+#         i += 1
+#         ai, bi = a_bin[-i], b_bin[-i]
+#     return res
+
+
+def sketch_up_u(operators, embeddings, cholesky_product=None):
+    if not hasattr(operators, '__len__'):
+        operators = [operators]
+    if cholesky_product is None:
+        cholesky_product = IdentityOperator(operators[0].source)
+    sigma = cholesky_product.range.from_numpy(embeddings[0].get_matrix().conj()) 
+    omega = embeddings[1]
+    gamma = embeddings[2]
+    result = gamma.range.empty()
+    
+    for operator in operators:
+        u = operator.apply(cholesky_product.apply_adjoint(sigma))
+        mat = omega.apply(cholesky_product.apply(u)).to_numpy().T
+        vec_mat = np.concatenate( [mat[:,j] for j in range(mat.shape[0])] )
+        v = gamma.source.from_numpy(vec_mat.T)
+        result.append(gamma.apply(v))
+    return result
+
+
+def sketch_l2_u(operators, embeddings, cholesky_product=None):
+    if not hasattr(operators, '__len__'):
+        operators = [operators]
+    if cholesky_product is None:
+        cholesky_product = IdentityOperator(operators[0].source)
+    sigma = operators[0].source.from_numpy(embeddings[0].get_matrix().conj()) 
+    omega = embeddings[1]
+    gamma = embeddings[2]
+    result = gamma.range.empty()
+    
+    for operator in operators:
+        u = operator.apply(sigma)
+        mat = omega.apply(cholesky_product.apply(u)).to_numpy().T
+        vec_mat = np.concatenate( [mat[:,j] for j in range(mat.shape[0])] )
+        v = gamma.source.from_numpy(vec_mat.T)
+        result.append(gamma.apply(v))
+    return result
+
+
+def sketch_l2_l2(operators, embeddings):
+    if not hasattr(operators, '__len__'):
+        operators = [operators]
+    sigma = operators[0].source.from_numpy(embeddings[0].get_matrix().conj()) 
+    omega = embeddings[1]
+    gamma = embeddings[2]
+    result = gamma.range.empty()
+    
+    for operator in operators:
+        u = operator.apply(sigma)
+        mat = omega.apply(u).to_numpy().T
+        vec_mat = np.concatenate( [mat[:,j] for j in range(mat.shape[0])] )
+        v = gamma.source.from_numpy(vec_mat.T)
+        result.append(gamma.apply(v))
+    return result
+
 
 if __name__ == '__main__':
     
@@ -500,3 +583,4 @@ if __name__ == '__main__':
     w = np.dot(mat, u.to_numpy().T)
     err = v-w
     print(np.linalg.norm(err) / np.linalg.norm(v))
+    

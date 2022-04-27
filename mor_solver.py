@@ -46,16 +46,17 @@ class SketchedSurrogate(WeakGreedySurrogate):
         self.online_sketch.from_sketch(self.primal_sketch)
     
     
-    def add_vectors(self, U):
-        self.primal_sketch.add_vectors(U)
+    def add_vectors(self, U, mus):
+        if not hasattr(mus, '__len__'):
+            mus = [mus]
+        self.primal_sketch.add_vectors(U, mus)
         self.certif_sketch.from_sketch(self.primal_sketch)
     
     
     def orthonormalize_basis(self, offset=0):
-        dtype = self.primal_sketch.SUr.to_numpy().dtype
         Q, R = gram_schmidt(self.primal_sketch.SUr, offset=offset, return_R=True, reiterate=False)
         T = ImplicitInverseOperator(
-            csc_matrix(R, dtype=dtype), source_id=self.primal_sketch.SVr.source.id, 
+            csc_matrix(R), source_id=self.primal_sketch.SVr.source.id, 
             range_id=self.primal_sketch.lhs.source.id
             )
         self.primal_sketch.orthonormalize_basis(T=T)
@@ -149,24 +150,26 @@ class SketchedSurrogate(WeakGreedySurrogate):
             
             # Spot the n_per_iter biggest errors
             indices_added = list(np.argsort(errors_online)[-n_per_iter:])
+            mu_add = mu_train[indices_added]
             max_err = errors_online[indices_added[-1]]
             max_errors.append(max_err)
+            for mu in mu_add:
+                mu_added.append(mu_add)
             print(f"  Maximal error : {max_err:.3e}")
             
             # Computing the snapshots (if U_train is None)
             tic = perf_counter()
             if U_train is None:
-                U_add = self.solve_fom(mu_train[indices_added])
+                U_add = self.solve_fom(mu_add)
             else:
                 U_add = U_train[indices_added]
-
             t = perf_counter() - tic
             times['exact_solving'].append(t)
             print(f"  Exact solving in {t:.3f}")
             
             # Adding the vectors to the sketch
             tic = perf_counter()
-            self.add_vectors(U_add)
+            self.add_vectors(U_add, mu_add)
             t = perf_counter() - tic
             times['adding_vectors'].append(t)
             print(f"  Adding vectors in {t:.3f}")

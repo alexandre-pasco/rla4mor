@@ -37,12 +37,8 @@ class SketchedRom():
     product : NumpyMatrixOperator
         The metric operator such as U.inner(V, product) gives the inner 
         product between U and V.
-    cholesky_product : CholeskyOperator
-        The cholesky operator corresponding to the product operator. If noted Q,
-        then Q @ Q^T = product.
-    cholesky_ordering : str
-        The ordering method for the sparse Cholesky factorization. 
-        Default is 'default'.
+    mus : list of Mu
+        The parameters used to construct the basis
     SUr : NumpyVectorArray
         The sketched reduced basis.
     SVr : LincombOperator
@@ -58,51 +54,39 @@ class SketchedRom():
     """
     
     def __init__(self, lhs, rhs, embedding=None, output_functional=None, product=None, 
-                 cholesky_product=None, cholesky_ordering='default', full_basis=False):
+                 full_basis=False):
                 
         for key, val in locals().items():
             self.__setattr__(key, val)
+        self.mus = []
         self.SUr = embedding.range.empty()
         self.SVr = None
         self.SF = None
         self.Ur = lhs.source.empty()
-        
-        if cholesky_product is None: 
-            if product is None:
-                self.product = IdentityOperator(lhs.source)
-                self.cholesky_product = IdentityOperator(lhs.source)
-            else:
-                print("No cholesky_product given, performing the Cholesky factorization.")
-                self.cholesky_product = CholeskyOperator(
-                    product.matrix, mode="auto", ordering_method=cholesky_ordering, 
-                    source_id=product.source.id, range_id=product.range.id
-                    )
-                print("Done")
-        
+        if product is None:
+            self.product = IdentityOperator(lhs.source)
         
     def _sketch_rhs(self):
         if self.embedding is None:
             SF = None
             print("No embedding to sketch the rhs.")
         else:
-            chol_inv = InverseOperator(self.cholesky_product)
-            theta = ConcatenationOperator((self.embedding, chol_inv))
-            SF = op_compose_lincomb(theta, self.rhs)
+            prod_inv = InverseOperator(self.product)
+            op = ConcatenationOperator((self.embedding, prod_inv))
+            SF = op_compose_lincomb(op, self.rhs)
         return SF
 
 
     def _sketch_u(self, U):
-        chol_H = AdjointOperator(self.cholesky_product)
-        theta = ConcatenationOperator((self.embedding, chol_H))
-        SU = theta.apply(U)
+        SU = self.embedding.apply(U)
         return SU
 
 
     def _sketch_sv(self, U):
-        chol_inv = InverseOperator(self.cholesky_product)
-        theta = ConcatenationOperator((self.embedding, chol_inv))
+        prod_inv = InverseOperator(self.product)
+        op = ConcatenationOperator((self.embedding, prod_inv))
         AUr = apply_affine(self.lhs, U)
-        SVr = op_compose_lincomb(theta, AUr)
+        SVr = op_compose_lincomb(op, AUr)
         return SVr
     
     
@@ -115,12 +99,13 @@ class SketchedRom():
         return lU
     
     
-    def add_vectors(self, U, projection=None):
+    def add_vectors(self, U, mus):
         if self.SF is None :
             self.SF = self._sketch_rhs()
         if self.full_basis: 
             self.Ur.append(U)
-
+        for mu in mus:
+            self.mus.append(mu)
         SU = self._sketch_u(U)
         SV = self._sketch_sv(U)
         SVr_next = lincomb_join(self.SVr, SV, axis=1)   

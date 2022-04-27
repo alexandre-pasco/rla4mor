@@ -22,7 +22,7 @@ class CholeskyOperator(Operator):
     
     An operator Q obtained by performing a cholesky factorization of a sparse
     symetric positive--definite matrix. The resulting operator is such as 
-    Q @ Q.T = R
+    Q^H @ Q = R
     
     Attibutes
     ---------
@@ -38,7 +38,7 @@ class CholeskyOperator(Operator):
     
     """
     
-    def __init__(self, matrix, mode="auto", ordering_method="natural", 
+    def __init__(self, matrix, mode="auto", ordering_method="default", 
                  source_id=None, range_id=None, name=None):
         self.__auto_init(locals())
         self.linear = True
@@ -48,38 +48,36 @@ class CholeskyOperator(Operator):
         
         
     def apply(self, U, mu=None):
-        assert U in self.source
-        factor = self.factor
-        L = factor.L()
-        result = factor.apply_Pt(L.dot(U.to_numpy().T))
-        return self.range.from_numpy(result.T)
-    
-    
-    def apply_inverse(self, U, mu=None, **kwargs):
-        assert U in self.range
-        factor = self.factor
-        result = factor.solve_L(factor.apply_P(U.to_numpy().T), False)
-        return self.source.from_numpy(result.T)
-    
-    
-    def apply_adjoint(self, U, mu=None):
-        assert U in self.range
         factor = self.factor
         Lt = factor.L().T
         result = Lt.dot(factor.apply_P(U.to_numpy().T))
         return self.source.from_numpy(result.T)
     
     
-    def apply_inverse_adjoint(self, U, mu=None, **kwargs):
-        assert U in self.source
+    def apply_inverse(self, U, mu=None, **kwargs):
         factor = self.factor
         result = factor.apply_Pt(factor.solve_Lt(U.to_numpy().T))
         return self.range.from_numpy(result.T)
     
     
+    
+    def apply_adjoint(self, U, mu=None):
+        factor = self.factor
+        L = factor.L()
+        result = factor.apply_Pt(L.dot(U.to_numpy().T))
+        return self.range.from_numpy(result.T)
+    
+    
+    def apply_inverse_adjoint(self, U, mu=None, **kwargs):
+        assert U in self.source
+        factor = self.factor
+        result = factor.solve_L(factor.apply_P(U.to_numpy().T), False)
+        return self.source.from_numpy(result.T)
+
+    
     def matrix(self):
         factor = self.factor
-        return factor.apply_Pt(factor.L())
+        return factor.apply_Pt(factor.L()).conj().T
 
 
 class ImplicitInverseOperator(Operator):
@@ -128,26 +126,6 @@ class ImplicitInverseOperator(Operator):
         operator = NumpyMatrixOperator(self.matrix, self.source_id, self.range_id)
         return operator.apply_adjoint(U)
 
-    
-class InverseLu(LinearOperator):
-    """
-    Class used as the preconditionner for scipy iterative solvers.
-    """
-    def __init__(self, dtype, factorization):
-
-        self.dtype = dtype
-        self.shape = factorization.shape
-        self.factorization = factorization
-    
-    
-    def _matvec(self, x):
-        slu = self.factorization
-        return slu.solve(x)
-    
-    
-    def _rmatvec(self, x):
-        slu = self.factorization
-        return slu.solve(x, trans='H')
         
         
 class ScipyLinearOperator(LinearOperator):
