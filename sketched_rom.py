@@ -105,6 +105,9 @@ class SketchedRom():
         if self.full_basis: 
             self.Ur.append(U)
         for mu in mus:
+            # Check if this value has already been added
+            for mu_added in self.mus:
+                assert not(mu.allclose(mu_added))
             self.mus.append(mu)
         SU = self._sketch_u(U)
         SV = self._sketch_sv(U)

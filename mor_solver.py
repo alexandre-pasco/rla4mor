@@ -72,7 +72,7 @@ class SketchedSurrogate(WeakGreedySurrogate):
     
     
     def solve_rom(self, mus):
-        if self.projection == 'galerkin':
+        if self.projection in ('galerkin', 'minres_normal'):
             coefs, times = self.primal_sketch.solve_rom(mus, self.projection)
         else:
             coefs, times = self.online_sketch.solve_rom(mus, self.projection)
