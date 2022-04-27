@@ -36,7 +36,9 @@ class RandomEmbedding(Operator):
         An operator Q such as Q^H @ Q = Ru, with Ru is a positive definite,
         self adjoint operator, for example a stifness matrix.
     _matrix : np.ndarray
-        The full matrix.
+        The U -> l2 embedding matrix.
+    _random_matrix : np.ndarray
+        The l2 -> l2 embedding matrix
     _seed : int
         If implemented, the seed for the random operator.
     """
@@ -60,17 +62,52 @@ class RandomEmbedding(Operator):
         """
         Update the embedding according to the attribute _seed.
 
-        Returns
-        -------
-        None.
-
         """
         pass
     
     
     @abstractmethod
-    def get_matrix(self):
+    def _compute_matrix(self):
         pass
+    
+    
+    @abstractmethod
+    def _compute_random_matrix(self):
+        pass
+    
+    
+    def get_matrix(self):
+        """
+        Returns the U -> l2 embedding matrix. It is obtained by applying the 
+        adjoint of self.sqrt_product to the row of the l2 -> l2 embedding 
+        matrix.
+
+        Returns
+        -------
+        numpy.ndarray
+            array of size (k, n), where k is the embedding dimension, and n the 
+            dimension of the vectors to embed.
+
+        """
+        if self._matrix is None:
+            self._matrix = self._compute_matrix()
+        return self._matrix
+    
+
+    def get_random_matrix(self):
+        """
+        Returns the l2 -> l2 embedding matrix.
+
+        Returns
+        -------
+        numpy.ndarray
+            array of size (k, n), where k is the embedding dimension, and n the 
+            dimension of the vectors to embed.
+
+        """
+        if self._matrix is None:
+            self._matrix = self._compute_random_matrix()
+        return self._matrix
     
     
     def set_seed(self, seed=None):
@@ -110,6 +147,8 @@ class GaussianEmbedding(RandomEmbedding):
         else :
             embedding_dim = self.compute_dim()
         self.range = NumpyVectorSpace(embedding_dim, range_id)
+        self._matrix = None
+        self._random_matrix = None
         self.set_seed(_seed)
         
 
@@ -135,11 +174,19 @@ class GaussianEmbedding(RandomEmbedding):
         k = self.range.dim
         n = self.source.dim
         gauss = np.random.RandomState(self._seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
-        self._matrix = gauss
+        self._random_matrix = gauss
     
     
-    def get_matrix(self):
-        return self._matrix
+    def _compute_matrix(self):
+        gauss = self._random_matrix
+        Q = self.sqrt_product
+        mat = Q.apply_adjoint(Q.range.from_numpy(gauss.conj())).to_numpy().conj()
+        return mat
+        
+    
+    def _compute_random_matrix(self):
+        return self._random_matrix
+    
 
 
 class GaussianEmbeddingRowWise(RandomEmbedding):
@@ -160,6 +207,7 @@ class GaussianEmbeddingRowWise(RandomEmbedding):
             embedding_dim = self.compute_dim()
         self.range = NumpyVectorSpace(embedding_dim, range_id)
         self._matrix = None
+        self._random_matrix = None
 
 
     def compute_dim(self):
@@ -188,22 +236,21 @@ class GaussianEmbeddingRowWise(RandomEmbedding):
     def update(self):
         pass
     
-    
-    def get_matrix(self):
-        if self._matrix is None:
-            self._matrix = self._compute_matrix()
-        mat = self._matrix
+
+    def _compute_matrix(self):
+        Q = self.sqrt_product
+        gauss = self._compute_random_matrix()
+        mat = Q.apply_adjoint(Q.range.from_numpy(gauss.conj())).to_numpy().conj()
         return mat
     
     
-    def _compute_matrix(self):
+    def _compute_random_matrix(self):
         n = self.source.dim
         k = self.range.dim
         mat = np.zeros((k,n))
         for i in range(k):
             gauss = np.random.RandomState(self._seed + i).normal(size=n, loc=0, scale=1)
             mat[i,:] = gauss / np.sqrt(k)
-        self._matrix = mat
         return mat
 
 
@@ -225,6 +272,7 @@ class RademacherEmbedding(RandomEmbedding):
             embedding_dim = self.compute_dim()
         self.range = NumpyVectorSpace(embedding_dim, range_id)
         self._matrix = None
+        self._random_matrix = None
 
 
     def compute_dim(self):
@@ -254,21 +302,20 @@ class RademacherEmbedding(RandomEmbedding):
         pass
 
 
-    def get_matrix(self):
-        if self._matrix is None:
-            self._matrix = self._compute_matrix()
-        mat = self._matrix
+    def _compute_matrix(self):
+        Q = self.sqrt_product
+        rad = self._compute_random_matrix()
+        mat = Q.apply_adjoint(Q.range.from_numpy(rad.conj())).to_numpy().conj()
         return mat
 
-    
-    def _compute_matrix(self):
+
+    def _compute_random_matrix(self):
         n = self.source.dim
         k = self.range.dim
         mat = np.zeros((k,n))
         for i in range(k):
             rademacher = np.random.RandomState(self._seed + i).choice([-1, 1], n, replace=True)
             mat[i,:] = rademacher / np.sqrt(k)
-        self._matrix = mat
         return mat
     
     
@@ -291,6 +338,7 @@ class SrhtEmbedding(RandomEmbedding):
             embedding_dim = self.compute_dim()
         self.range = NumpyVectorSpace(embedding_dim, range_id)
         self._matrix = None
+        self._random_matrix = None
 
 
     def compute_dim(self):
@@ -364,25 +412,14 @@ class SrhtEmbedding(RandomEmbedding):
         pass
     
     
-    def get_matrix(self):
-        if self._matrix is None:
-            self._matrix = self._compute_matrix()
-        mat = self._matrix
-        return mat
-        
-    
     def _compute_matrix(self):
-        # n = self.source.dim
-        # k = self.range.dim
-        # d = int(np.ceil(np.log2(n)))
-        # rademacher = np.random.RandomState(self._seed).choice([-1, 1], n, replace=True)
-        # sampling = np.random.RandomState(self._seed).choice(range(2**d), k, replace=True)
-        # mat = np.zeros((k,n))
-        
-        # for i in range(k):
-        #     h_row = self._get_hadamard_row(sampling[i])
-        #     row = h_row * rademacher / np.sqrt(k)
-        #     mat[i] = row
+        Q = self.sqrt_product
+        s = self.get_random_matrix()
+        mat = Q.apply_adjoint(Q.range.from_numpy(s.conj())).to_numpy().conj()
+        return mat
+    
+    
+    def _compute_random_matrix(self):
         mat = self._get_rows([i for i in range(self.range.dim)])
         return mat
     
@@ -449,6 +486,7 @@ class IdentityEmbedding(RandomEmbedding):
         self.name = name
         self.linear = True
         self._matrix = None
+        self._random_matrix = None
 
     def compute_dim(self):
         return self.source.dim
@@ -462,11 +500,14 @@ class IdentityEmbedding(RandomEmbedding):
         pass
     
     
-    def get_matrix(self):
-        if self._matrix is None:
-            self._matrix = eye(self.source.dim)
-        return self._matrix
+    def _compute_matrix(self):
+        mat = self.sqrt_product.get_matrix()
+        return mat
     
+    
+    def _compute_random_matrix(self):
+        return eye(self.source.dim)
+
     
     
 def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None, 
@@ -576,7 +617,10 @@ def sketch_l2_l2(operators, embeddings):
 
 if __name__ == '__main__':
     
-    embedding = SrhtEmbedding(source_dim=100, range_dim = 20)
+    embedding = SrhtEmbedding(source_dim=100, range_dim=20)
+    # embedding = GaussianEmbedding(source_dim=100, range_dim=20)
+    # embedding = RademacherEmbedding(source_dim=100, range_dim=20)
+    
     u = embedding.source.from_numpy(np.random.normal(size=embedding.source.dim))
     mat = embedding.get_matrix()
     v = embedding.apply(u).to_numpy().T

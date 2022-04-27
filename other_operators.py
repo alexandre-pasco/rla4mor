@@ -26,7 +26,7 @@ class CholeskyOperator(Operator):
     
     Attibutes
     ---------
-    matrix : matrix format from scipy.sparse 
+    product_matrix : matrix format from scipy.sparse 
         The matrix to factorize. The most efficient format is csc_matrix.
     mode : str
         The algorithm to compute the Cholesky decomposition. See CHOLMOD 
@@ -38,13 +38,13 @@ class CholeskyOperator(Operator):
     
     """
     
-    def __init__(self, matrix, mode="auto", ordering_method="default", 
+    def __init__(self, product_matrix, mode="auto", ordering_method="default", 
                  source_id=None, range_id=None, name=None):
         self.__auto_init(locals())
         self.linear = True
-        self.source = NumpyVectorSpace(matrix.shape[1], source_id)
-        self.range = NumpyVectorSpace(matrix.shape[0], range_id)
-        self.factor = cholesky(matrix, mode=mode, ordering_method=ordering_method)
+        self.source = NumpyVectorSpace(product_matrix.shape[1], source_id)
+        self.range = NumpyVectorSpace(product_matrix.shape[0], range_id)
+        self.factor = cholesky(product_matrix, mode=mode, ordering_method=ordering_method)
         
         
     def apply(self, U, mu=None):
@@ -75,7 +75,7 @@ class CholeskyOperator(Operator):
         return self.source.from_numpy(result.T)
 
     
-    def matrix(self):
+    def get_matrix(self):
         factor = self.factor
         return factor.apply_Pt(factor.L()).conj().T
 
