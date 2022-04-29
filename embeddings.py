@@ -8,7 +8,7 @@ Created on Wed Apr 13 16:06:59 2022
 
 import numpy as np
 from pymor.core.base import abstractmethod
-from pymor.operators.constructions import Operator, IdentityOperator
+from pymor.operators.constructions import Operator, IdentityOperator, ConcatenationOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
@@ -129,6 +129,16 @@ class RandomEmbedding(Operator):
             new_seed = seed
         self._seed = new_seed
         self.update()
+    
+    
+    def as_range_array(self):
+        result = self.range.from_numpy(self.get_matrix().T)
+        return result
+    
+    
+    def as_source_array(self):
+        result = self.source.from_numpy(self.get_matrix())
+        return result
     
 
 class GaussianEmbedding(RandomEmbedding):
@@ -560,59 +570,39 @@ def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None,
 #     return res
 
 
-def sketch_up_u(operators, embeddings, cholesky_product=None):
-    if not hasattr(operators, '__len__'):
-        operators = [operators]
-    if cholesky_product is None:
-        cholesky_product = IdentityOperator(operators[0].source)
-    sigma = cholesky_product.range.from_numpy(embeddings[0].get_matrix().conj()) 
+def sketch_operator(operator, embeddings):
+    """
+    Sketch an operator into a l2 vector using three embeddings : sigma, omega 
+    and gamma, inputed as a tuple. The sketch is computed by applying the 
+    operator to the columns of sigma, then applying omega to the resulting columns.
+    The resullting array in then vectorized so that gamma can be applied on it.
+    
+    The norm of the result approximates the Froboenius norm of the operator.
+    
+    
+    Parameters
+    ----------
+    operator : Operator
+        The linear operator to sketch.
+    embeddings : tuple of RandomEmbedding or Operator
+        The embeddings to use. 
+
+    Returns
+    -------
+    result : NumpyVectorArray
+        The vector representing the sketched operator.
+
+    """
+    sigma_vectors = embeddings[0].as_source_array().conj()
     omega = embeddings[1]
     gamma = embeddings[2]
-    result = gamma.range.empty()
     
-    for operator in operators:
-        u = operator.apply(cholesky_product.apply_adjoint(sigma))
-        mat = omega.apply(cholesky_product.apply(u)).to_numpy().T
-        vec_mat = np.concatenate( [mat[:,j] for j in range(mat.shape[0])] )
-        v = gamma.source.from_numpy(vec_mat.T)
-        result.append(gamma.apply(v))
+    sketched_right = operator.apply(sigma_vectors)
+    sketched = omega.apply(sketched_right).to_numpy().T
+    vectorized = np.concatenate( [sketched[:,j] for j in range(sketched.shape[1])] )
+    result = gamma.apply(gamma.source.from_numpy(vectorized))
     return result
 
-
-def sketch_l2_u(operators, embeddings, cholesky_product=None):
-    if not hasattr(operators, '__len__'):
-        operators = [operators]
-    if cholesky_product is None:
-        cholesky_product = IdentityOperator(operators[0].source)
-    sigma = operators[0].source.from_numpy(embeddings[0].get_matrix().conj()) 
-    omega = embeddings[1]
-    gamma = embeddings[2]
-    result = gamma.range.empty()
-    
-    for operator in operators:
-        u = operator.apply(sigma)
-        mat = omega.apply(cholesky_product.apply(u)).to_numpy().T
-        vec_mat = np.concatenate( [mat[:,j] for j in range(mat.shape[0])] )
-        v = gamma.source.from_numpy(vec_mat.T)
-        result.append(gamma.apply(v))
-    return result
-
-
-def sketch_l2_l2(operators, embeddings):
-    if not hasattr(operators, '__len__'):
-        operators = [operators]
-    sigma = operators[0].source.from_numpy(embeddings[0].get_matrix().conj()) 
-    omega = embeddings[1]
-    gamma = embeddings[2]
-    result = gamma.range.empty()
-    
-    for operator in operators:
-        u = operator.apply(sigma)
-        mat = omega.apply(u).to_numpy().T
-        vec_mat = np.concatenate( [mat[:,j] for j in range(mat.shape[0])] )
-        v = gamma.source.from_numpy(vec_mat.T)
-        result.append(gamma.apply(v))
-    return result
 
 
 if __name__ == '__main__':
@@ -626,5 +616,23 @@ if __name__ == '__main__':
     v = embedding.apply(u).to_numpy().T
     w = np.dot(mat, u.to_numpy().T)
     err = v-w
-    print(np.linalg.norm(err) / np.linalg.norm(v))
+    print("get_matrix error", np.linalg.norm(err) / np.linalg.norm(v))
+    
+    
+    sigma = SrhtEmbedding(source_dim=100, range_dim=50)
+    omega = SrhtEmbedding(source_dim=100, range_dim=50)
+    gamma = GaussianEmbedding(source_dim=sigma.range.dim*omega.range.dim, range_dim=50)
+    op1 = NumpyMatrixOperator(np.random.normal(size=(100,100)))
+    op2 = NumpyMatrixOperator(np.random.normal(size=(100,100)))
+    
+    s1 = sketch_operator(op1, (sigma, omega, gamma))
+    s2 = sketch_operator(op2, (sigma, omega, gamma))
+    err_inner = (np.sum(op1.matrix*op2.matrix) - s1.inner(s2)[0,0]) / (np.linalg.norm(op1.matrix) * np.linalg.norm(op1.matrix))
+    err_1 = 1 - s1.norm()[0]/np.linalg.norm(op1.matrix)
+    err_2 = 1 - s2.norm()[0]/np.linalg.norm(op2.matrix)
+    
+    print("inner product error", err_inner)
+    print("norm error 1", err_1)
+    print("norm error 2", err_2)
+    
     
