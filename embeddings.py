@@ -149,8 +149,10 @@ class GaussianEmbedding(RandomEmbedding):
         
         self.__auto_init(locals())
         self.linear = True
-        self.source = NumpyVectorSpace(source_dim, source_id)
-        if sqrt_product is None:
+        if not(sqrt_product is None):
+            self.source = sqrt_product.source
+        else: 
+            self.source = NumpyVectorSpace(source_dim, source_id)
             self.sqrt_product = IdentityOperator(self.source)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
@@ -208,8 +210,10 @@ class GaussianEmbeddingRowWise(RandomEmbedding):
         self.__auto_init(locals())
         self.linear = True
         self.set_seed(_seed)
-        self.source = NumpyVectorSpace(source_dim, source_id)
-        if sqrt_product is None:
+        if not(sqrt_product is None):
+            self.source = sqrt_product.source
+        else: 
+            self.source = NumpyVectorSpace(source_dim, source_id)
             self.sqrt_product = IdentityOperator(self.source)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
@@ -273,8 +277,10 @@ class RademacherEmbedding(RandomEmbedding):
         self.__auto_init(locals())
         self.linear = True
         self.set_seed(_seed)
-        self.source = NumpyVectorSpace(source_dim, source_id)
-        if sqrt_product is None:
+        if not(sqrt_product is None):
+            self.source = sqrt_product.source
+        else: 
+            self.source = NumpyVectorSpace(source_dim, source_id)
             self.sqrt_product = IdentityOperator(self.source)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
@@ -332,15 +338,17 @@ class RademacherEmbedding(RandomEmbedding):
 class SrhtEmbedding(RandomEmbedding):
     
     def __init__(self, source_dim=1, range_dim=1, epsilon=None, delta=None, 
-                 oblivious_dim=None, seed=None, dtype=float, source_id=None, 
-                 range_id=None, solver_option=None, sqrt_product=None, name='srht', _seed=None):
+                 oblivious_dim=None, dtype=float, source_id=None, range_id=None, 
+                 solver_option=None, sqrt_product=None, name='srht', _seed=None):
         
         assert dtype in (float, complex)
         self.linear = True
         self.__auto_init(locals())
         self.set_seed(_seed)
-        self.source = NumpyVectorSpace(source_dim, source_id)
-        if sqrt_product is None:
+        if not(sqrt_product is None):
+            self.source = sqrt_product.source
+        else: 
+            self.source = NumpyVectorSpace(source_dim, source_id)
             self.sqrt_product = IdentityOperator(self.source)
         if (epsilon is None) or (delta is None) or (oblivious_dim is None):
             embedding_dim = range_dim
@@ -488,7 +496,11 @@ class IdentityEmbedding(RandomEmbedding):
                  range_id=None, solver_option=None, sqrt_product=None, name='identity', _seed=None):
         
         self.__auto_init(locals())
-        self.source = NumpyVectorSpace(source_dim, source_id)
+        if not(sqrt_product is None):
+            self.source = sqrt_product.source
+        else: 
+            self.source = NumpyVectorSpace(source_dim, source_id)
+            self.sqrt_product = IdentityOperator(self.source)
         self.range = NumpyVectorSpace(source_dim, range_id)
         self.epsilon = 0,
         self.delta = 0,
@@ -521,8 +533,9 @@ class IdentityEmbedding(RandomEmbedding):
     
     
 def generate_embedding(embedding_type, source_dim=1, range_dim=1, epsilon=None, 
-                       delta=None, oblivious_dim=None, seed=None, dtype=float, 
-                       source_id=None, range_id=None, solver_option=None):
+                       delta=None, oblivious_dim=None, dtype=float, 
+                       source_id=None, range_id=None, solver_option=None, 
+                       sqrt_product=None, name='srht', _seed=None):
     kwargs = locals()
     _ = kwargs.pop('embedding_type')
     if embedding_type == 'srht':
@@ -619,9 +632,10 @@ if __name__ == '__main__':
     print("get_matrix error", np.linalg.norm(err) / np.linalg.norm(v))
     
     
-    sigma = SrhtEmbedding(source_dim=100, range_dim=50)
-    omega = SrhtEmbedding(source_dim=100, range_dim=50)
-    gamma = GaussianEmbedding(source_dim=sigma.range.dim*omega.range.dim, range_dim=50)
+    sigma = generate_embedding("srht", source_dim=100, range_dim=50)
+    omega = generate_embedding("srht", source_dim=100, range_dim=50)
+    gamma = generate_embedding("gaussian", source_dim=sigma.range.dim*omega.range.dim, range_dim=50)
+
     op1 = NumpyMatrixOperator(np.random.normal(size=(100,100)))
     op2 = NumpyMatrixOperator(np.random.normal(size=(100,100)))
     
