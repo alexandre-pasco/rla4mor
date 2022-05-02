@@ -100,6 +100,8 @@ class SketchedRom():
     
     
     def add_vectors(self, U, mus):
+        if not hasattr(mus, '__len__'):
+            mus = [mus]
         if self.SF is None :
             self.SF = self._sketch_rhs()
         if self.full_basis: 
@@ -177,6 +179,8 @@ class SketchedRom():
 
     
     def solve_rom(self, mus, projection):
+        if not isinstance(mus, list) and not isinstance(mus, np.ndarray):
+            mus = [mus]
         if projection in ('galerkin', 'minres_ls', 'minres_normal'):
             coefs, times = self.rb_projection(mus, projection)
         return coefs, times
@@ -211,7 +215,7 @@ class SketchedRom():
         tic = perf_counter()
         for mu in mus:
             # compute the reduced solutions
-            coef = red_lhs.apply_inverse(red_rhs.as_range_array(mu), mu, least_squares=(ls))
+            coef = red_lhs.apply_inverse(red_rhs.as_range_array(mu), mu, least_squares=ls)
             coefs.append(coef)
         times['rom_solving'] = perf_counter() - tic
         
