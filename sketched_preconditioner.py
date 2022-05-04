@@ -21,7 +21,29 @@ from sketched_rom import *
 
 
 class SketchedPreconditioner:
+    """
+    Class implementing preconditioned (sketched) galerking projection and 
+    sketched error indicators for preconditioners.
     
+    Attributes
+    ----------
+    lhs : LincombOperator
+        The left-hand side of the full problem.
+    rhs : LincombOperator
+        The right-hand side of the full problem.
+    Ur : NumpyVectorArray
+        A array of vectors spanning the reduced space approximating the 
+        solution manifold.
+    theta : RandomEmbedding
+        The U->l2 embedding which is a subspace embedding for
+    product : Operator
+    
+    sqrt_product = Operator
+    
+    sigma_{x}_{y} : RandomEmbedding
+    
+    
+    """
 
     def __init__(self, lhs, rhs, Ur, theta, product=None, sqrt_product=None, sigma_u_u=None,
                  omega_u_u=None, gamma_u_u=None, sigma_u_ur=None, omega_u_ur=None,
@@ -30,8 +52,6 @@ class SketchedPreconditioner:
         
         for key, val in locals().items():
             self.__setattr__(key, val)
-        
-        
         
         if product is None or sqrt_product is None:
             self.product = IdentityOperator(lhs.source)
