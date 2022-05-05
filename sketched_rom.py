@@ -6,6 +6,7 @@ Created on Thu Apr 14 15:29:28 2022
 @author: pasco
 """
 
+import sys
 import numpy as np
 from time import perf_counter
 from pymor.operators.numpy import NumpyMatrixOperator
@@ -17,7 +18,7 @@ from scipy.sparse import csc_matrix
 from affine_operations import *
 from other_operators import *
 from embeddings import *
-
+from sparse_projection import *
 
 class SketchedRom():
     """
@@ -178,11 +179,15 @@ class SketchedRom():
         self.SF = op_compose_lincomb(embedding, sketch.SF)
 
     
-    def solve_rom(self, mus, projection):
+    def solve_rom(self, mus, projection, **kwargs):
         if not isinstance(mus, list) and not isinstance(mus, np.ndarray):
             mus = [mus]
         if projection in ('galerkin', 'minres_ls', 'minres_normal'):
             coefs, times = self.rb_projection(mus, projection)
+        elif projection in ('sparse_minres'):
+            coefs, times = self.sparse_minres_projection(mus, **kwargs)
+        else:
+            print("Projection not valid")
         return coefs, times
     
     
@@ -196,6 +201,7 @@ class SketchedRom():
     
     
     def _rb_projection(self, mus, projection):
+        print(f"***RB {projection}")
         coefs = self.SVr.source.empty()
         ls = False
         times = {'offline_assembling': 0., 'rom_solving': 0.}
@@ -218,7 +224,7 @@ class SketchedRom():
             coef = red_lhs.apply_inverse(red_rhs.as_range_array(mu), mu, least_squares=ls)
             coefs.append(coef)
         times['rom_solving'] = perf_counter() - tic
-        
+
         return coefs, times
 
 
@@ -325,39 +331,86 @@ class SketchedRom():
             errors[i] = np.sqrt(max(0,error))
         
         return errors
-    
 
-        
-
-    # def _extended_galerkin_system(self, SAr, Sbr, SU, SV):
-    #     SUr = self.SUr
-    #     SVr = self.SVr
-    #     SVr_next = lincomb_join(self.SVr, SV, axis=1)
-        
-    #     op_col = NumpyMatrixOperator(SUr.to_numpy().conj(), source_id=SV.range.id, range_id=SV.source.id)
-    #     op_row = NumpyMatrixOperator(SU.to_numpy().conj(), source_id=SV.range.id, range_id=SV.source.id)
-        
-    #     new_cols = op_compose_lincomb(op_col, SVr)
-    #     new_rows = op_compose_lincomb(op_row, SVr_next)
-        
-    #     SAr_bis = lincomb_join(SAr, new_cols, axis=1)
-    #     SAr_next = lincomb_join(SAr_bis, new_rows, axis=0)
-        
-    #     Sbr_next = lincomb_join(Sbr, op_compose_lincomb(op_row, self.SF), axis=0)
-        
-    #     return SAr_next, Sbr_next
-        
     
-    def sparse_projection(self, mus, projection):
+    def sparse_minres_projection(self, mus, r=None, stol=None, solver='stepwise'):
+        """
+        Use a particular solver to approximate the solution of the least 
+        square problem 
+            \min_x \|x\|_0 such that \| Vx - F \| < stol
+        with the constraint \|x\|_0 <=r, for all parameter values.
+
+        Parameters
+        ----------
+        mus : list of Mu
+            the parameter
+        r : int, optional
+            The maximul number of vectors to use. If None, all vectors can be used. 
+        stol : float, optional
+            The residual norm target. If None, 0 is taken as tolerance.
+        solver : str, optional
+            The algorithm used, among stepwise, omp_spams, omp_sklearn. The default is 'stepwise'.
+
+        Returns
+        -------
+        coefs : NumpyVectorArray
+            DESCRIPTION.
+        times : dict
+            DESCRIPTION.
+
+        """
         if self.SVr is None:
             times = {'offline_assembling': 0., 'rom_solving': 0., 'offline_assembling': 0.}
             coefs = None
+        elif r >= self.SVr.source.dim:
+            coefs, times = self.rb_projection(mus, 'minres_ls')
         else:
-            coefs, times = self._sparse_projection(mus, projection)
+            coefs, times = self._sparse_minres_projection(mus, r, stol, solver)
         return coefs, times
 
-    def _sparse_projection(self, mus, projection):
-        print("Not implemented yet")
-        pass
+
+
+    def _sparse_minres_projection(self, mus, r, stol, solver):
         
+        # If omp from sklearn or spams is used, the matrix must be real
+        dkind = self.SUr.to_numpy().dtype.kind
+        handle_cplx = (dkind=='c') and (solver in ('omp_sklearn', 'omp_spams'))
+        print(f"***sparse minres r={r}, stol={stol}, solver={solver}, cplx={handle_cplx}")
+        times = {'offline_assembling': 0., 'rom_solving': 0.}
         
+        tic = perf_counter()
+        if handle_cplx:
+            r = 2*r
+            SVr = lincomb_complex_to_real(self.SVr)
+            SF = lincomb_vector_complex_to_real(self.SF)
+        else :
+            SVr = self.SVr
+            SF = self.SF
+        times['offline_assembling'] = perf_counter() - tic
+        
+        coefs = SVr.source.empty()
+        
+        tic = perf_counter()
+        for mu in mus:
+            # compute the reduced solutions
+            V = SVr.assemble(mu).matrix
+            F = SF.assemble(mu).matrix
+            coef, _ = sparse_minres_solver(V, F, r, stol, False, solver)
+            coefs.append(coefs.space.from_numpy(coef))
+            
+        if handle_cplx:
+            coefs_np = coefs.to_numpy()
+            space = self.SVr.source
+            coefs = space.from_numpy(coefs_np[:,:space.dim] + 1.j*coefs_np[:,space.dim:])
+        
+        times['rom_solving'] = perf_counter() - tic
+
+        return coefs, times
+        
+
+
+
+
+
+
+

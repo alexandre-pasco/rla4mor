@@ -72,11 +72,11 @@ class SketchedSurrogate(WeakGreedySurrogate):
         pass
     
     
-    def solve_rom(self, mus):
+    def solve_rom(self, mus, **kwargs):
         if self.projection in ('galerkin', 'minres_normal'):
-            coefs, times = self.primal_sketch.solve_rom(mus, self.projection)
+            coefs, times = self.primal_sketch.solve_rom(mus, self.projection, **kwargs)
         else:
-            coefs, times = self.online_sketch.solve_rom(mus, self.projection)
+            coefs, times = self.online_sketch.solve_rom(mus, self.projection, **kwargs)
         return coefs, times
     
     
@@ -90,7 +90,7 @@ class SketchedSurrogate(WeakGreedySurrogate):
     
     
     def weak_greedy(self, r_max, tol, mu_train=None, U_train=None, n_train=None, 
-                    n_per_iter=1, ortho_basis=True, mu_generator=None):
+                    n_per_iter=1, ortho_basis=True, mu_generator=None, **kwargs):
         
         if not mu_train is None:
             mu_train = np.array(mu_train)
@@ -124,7 +124,7 @@ class SketchedSurrogate(WeakGreedySurrogate):
             times['online_sketch_generation'] = perf_counter() - tic
             
             # Evaluating the errors on the training set with the provisional rom.
-            coefs, times_online = self.solve_rom(mu_train)
+            coefs, times_online = self.solve_rom(mu_train, **kwargs)
             tic = perf_counter()
             errors_online, _ = self.online_sketch.residual_norms(coefs, mu_train)
             t_error = perf_counter() - tic
@@ -177,7 +177,7 @@ class SketchedSurrogate(WeakGreedySurrogate):
             
             # Orthonormalize the basis
             tic = perf_counter()
-            if ortho_basis:
+            if ortho_basis and not(self.projection in ('sparse_minres')):
                 self.orthonormalize_basis(offset=r-n_per_iter)
             t = perf_counter() - tic
             times['ortho_sketch'].append(t)
