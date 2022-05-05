@@ -502,8 +502,8 @@ class IdentityEmbedding(RandomEmbedding):
             self.source = NumpyVectorSpace(source_dim, source_id)
             self.sqrt_product = IdentityOperator(self.source)
         self.range = NumpyVectorSpace(source_dim, range_id)
-        self.epsilon = 0,
-        self.delta = 0,
+        self.epsilon = 0
+        self.delta = 0
         self.oblivious_dim = source_dim
         self.name = name
         self.linear = True
