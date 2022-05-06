@@ -515,7 +515,7 @@ class IdentityEmbedding(RandomEmbedding):
     
     
     def apply(self, U, mu=None):
-        return self.range.from_numpy(U.to_numpy())
+        return self.range.from_numpy(self.sqrt_product.apply(U).to_numpy())
     
     
     def update(self):
@@ -523,7 +523,11 @@ class IdentityEmbedding(RandomEmbedding):
     
     
     def _compute_matrix(self):
-        mat = self.sqrt_product.get_matrix()
+        if hasattr(self.sqrt_product, 'get_matrix'):
+            mat = self.sqrt_product.get_matrix()
+        else:
+            vec = self.source.from_numpy(np.eye(self.source.dim))
+            mat = self.apply(vec).to_numpy().T
         return mat
     
     
