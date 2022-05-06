@@ -95,7 +95,7 @@ class SketchedPreconditioner:
             SAr += coef[i] * self.SAr[i].assemble(mu).matrix
             Sbr += coef[i] * self.Sbr[i].assemble(mu).matrix.reshape(-1)
         return SAr, Sbr
-        
+    
     
     def _sub_galerkin_system(self, P):
         Ur = self.Ur
@@ -117,19 +117,91 @@ class SketchedPreconditioner:
         return gal_lhs, gal_rhs
     
     
-    def _assemble_ls_matrices(self, mu):
+    def fit(self, mus, which=1, alpha=0, solver='minres_ls', **kwargs):
+        """
+        Compute the coefficients and the associated errors of the ls minimization
+        problem for some error indicator (which).
+
+        Parameters
+        ----------
+        mus : list of Mu
+            DESCRIPTION.
+        which : str, optional
+            The error indicator to use. If 1 then HS(U,U), if 2 then HS(U,Ur),
+            if 3 then HS(Ur,Ur), if 4 then alpha*HS(U,Ur)+HS(Ur,Ur). 
+            The default is 1.
+        alpha : float, optional
+            DESCRIPTION. The default is 0.
+        solver : str, optional
+            The solver to use, must be one of minres_ls, stepwise, omp, 
+            omp_sklearn, omp_spams. The default is minres_ls.
+        kwargs:
+            the kwargs for the sparse minres projection.
+
+        Returns
+        -------
+        coefs : () ndarray
+            The coefficients in the preconditioners space.
+        errors : TYPE
+            The associated errors.
+
+        """
+        
+        I = IdentityOperator(self.lhs.source)
+        if which == 1:
+            ls_rhs = self._sketch_u_u(I).to_numpy().T
+        elif which == 2:
+            ls_rhs = self._sketch_u_ur(I).to_numpy().T
+        elif which == 3:
+            ls_rhs = self._sketch_ur_ur(I).to_numpy().T
+        elif which == 4:
+            h1 = self._sketch_u_ur(I).to_numpy().T
+            h2 = self._sketch_ur_ur(I).to_numpy().T
+            ls_rhs = np.block([[alpha * h1], [h2]])
+        else:
+            print("Selected error indicator not valid")
+        
+        coefs = np.zeros((len(mus), len(self.pa_ur_ur)), dtype=ls_rhs.dtype)
+        errors = np.zeros(len(mus))
+        
+        for i in range(len(mus)):
+            ls_lhs = self._assemble_ls_matrices(mus[i], which)
+            if solver == 'minres_ls':
+                coef, err, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs.reshape(-1), rcond=None)
+            elif solver in ('omp', 'omp_spams', 'omp_sklearn', 'stepwise'):
+                coef, _ = sparse_minres_solver(ls_lhs, ls_rhs, **kwargs)
+                residual = np.dot(ls_lhs, coef) - ls_rhs.reshape(-1)
+                err = np.linalg.norm(residual)**2
+            coefs[i] = coef
+            errors[i] = np.sqrt(err)
+        
+        return coefs, errors
+    
+    
+    def _assemble_ls_matrices(self, mu, which=1, alpha=0):
         coef = np.array(self.lhs.evaluate_coefficients(mu))
-        p = len(self.pa_u_u)
-        pa_u_u = self.gamma_u_u.range.empty()
-        pa_u_ur = self.gamma_u_ur.range.empty()
-        pa_ur_ur = self.gamma_ur_ur.range.empty()
-        
-        for i in range(p):
-            pa_u_u.append(self.pa_u_u[i].lincomb(coef))
-            pa_u_ur.append(self.pa_u_ur[i].lincomb(coef))
-            pa_ur_ur.append(self.pa_ur_ur[i].lincomb(coef))
-        
-        return pa_u_u, pa_u_ur, pa_ur_ur
+        if which == 1:
+            vec = self.gamma_u_u.range.empty()
+            pa_lst = self.pa_u_u
+        elif which == 2:
+            vec = self.gamma_u_ur.range.empty()
+            pa_lst = self.pa_u_ur
+        elif which == 3:
+            vec = self.gamma_ur_ur.range.empty()
+            pa_lst = self.pa_ur_ur
+        elif which != 4:
+            print("Selected error indicator not valid")
+
+        if which in (1,2,3):
+            for pa in pa_lst:
+                vec.append(pa.lincomb(coef))
+            mat = vec.to_numpy().T
+        else:
+            m2 = self._assemble_ls_matrices(mu, which=2)
+            m3 = self._assemble_ls_matrices(mu, which=3)
+            mat = np.block([[alpha * m2], [m3]])
+            
+        return mat
     
     
     def _sketch_pa_u_u(self, P):
@@ -288,7 +360,9 @@ if __name__ == '__main__':
     
     # Preconditioned sketched galerkin
     
-    pa1, pa2, pa3 = sp._assemble_ls_matrices(mu)
+    pa1 = sp._assemble_ls_matrices(mu, which=1)
+    pa2 = sp._assemble_ls_matrices(mu, which=2)
+    pa3 = sp._assemble_ls_matrices(mu, which=3)
     
     h1 = sp._sketch_u_u(IdentityOperator(lhs.source))
     h2 = sp._sketch_u_ur(IdentityOperator(lhs.source))
