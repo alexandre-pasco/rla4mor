@@ -58,147 +58,65 @@ class SketchedPreconditioner:
             self.sqrt_product = IdentityOperator(lhs.source)
         
         self.SUr = theta.apply(Ur)
-        self.galerkin_lhs_lst = [] # galerkin lhs
-        self.galerkin_rhs_lst = [] # galerkin rhs
+        self.SAr = [] # galerkin lhs
+        self.Sbr = [] # galerkin rhs
         self.pa_u_u = []
         self.pa_u_ur = []
         self.pa_ur_ur = []
         self.mus = []
-        
-        # Compute the different range orthonormalizers for A
-        dtype = Ur.to_numpy().dtype
-        
-        ####
-        
-        # for galerkin
-        Q_AUr, _ = lincomb_ortho_range(lhs, Ur, self.product)
-        self.range_AUr = Q_AUr
-        self.projected_AUr = apply2_affine(lhs, Q_AUr, Ur)
-        self.projected_PhUr_lst = []
-        
-        # for delta U->U'
-        source = self.product.apply_inverse(
-            self.sqrt_product.apply_adjoint(sigma_u_u.as_source_array().conj())
-            )
-        Q, R = lincomb_ortho_range(lhs, source, self.product)
-        # self.T_u_u = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
-        self.range_AS_u_u = Q
-        self.projected_A_u_u = apply2_affine(lhs, Q, source)
-        self.projected_Ph_u_u_lst = []
-        
-        # for delta U->Ur'
-        source = self.product.apply_inverse(
-            self.sqrt_product.apply_adjoint(sigma_u_ur.as_source_array().conj())
-            )
-        Q, R = lincomb_ortho_range(lhs, source, self.product)
-        # self.T_u_ur = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
-        self.range_AS_u_ur = Q
-        self.projected_A_u_ur = apply2_affine(lhs, Q, source)
-        self.projected_Ph_u_ur_lst = []
-        
-        # for delta Ur->Ur
-        source = lhs.source.from_numpy((Ur.to_numpy().T @ sigma_ur_ur.get_matrix()).T)
-        self.range_AS_ur_ur = Q_AUr
-        self.projected_A_ur_ur = apply2_affine(lhs, Q_AUr, source)
-        self.projected_Ph_ur_ur_lst = []
 
 
     def add_preconditioner(self, P, mu=None):
         self.mus.append(mu)
-        
-        # for galerkin
         tic = perf_counter()
-        projected_PhUr= self._project_PhUr(P)
-        print(f'range(Ar)h @ Ph @ Ur in {perf_counter()-tic:.3f} s')
-        self.projected_PhUr_lst.append(projected_PhUr)
-        
-        # for delta U->U'
+        self.pa_u_u.append(self._sketch_pa_u_u(P))
+        print(f'HS(U->U\') sketched in {perf_counter()-tic:.3f} s')
         tic = perf_counter()
-        projected_Ph_u_u = self._project_Ph_u_u(P)
-        print(f'range(A @ Sigmah)h @ Ph @ Omega in {perf_counter()-tic:.3f} s')
-        self.projected_Ph_u_u_lst.append(projected_Ph_u_u)
-        
-        # for delta U->Ur'
+        self.pa_u_ur.append(self._sketch_pa_u_ur(P))
+        print(f'HS(U->Ur\') sketched in {perf_counter()-tic:.3f} s')
         tic = perf_counter()
-        projected_Ph_u_ur = self._project_Ph_u_ur(P)
-        print(f'range(A @ Sigmah)h @ Ph @ Ur @ Omega in {perf_counter()-tic:.3f} s')
-        self.projected_Ph_u_ur_lst.append(projected_Ph_u_ur)
-        
-        # for delta Ur->Ur'
+        self.pa_ur_ur.append(self._sketch_pa_ur_ur(P))
+        print(f'HS(Ur->Ur\') sketched in {perf_counter()-tic:.3f} s')
         tic = perf_counter()
-        projected_Ph_ur_ur = self._project_Ph_ur_ur(P)
-        print(f'range(A @ Ur @ Sigmah)h @ Ph @ Ur @ Omega in {perf_counter()-tic:.3f} s')
-        self.projected_Ph_ur_ur_lst.append(projected_Ph_ur_ur)
+        SAr, Sbr = self._sub_galerkin_system(P)
+        print(f'Galerkin subsystems in {perf_counter()-tic:.3f} s')
+        
+        self.SAr.append(SAr)
+        self.Sbr.append(Sbr)
+    
+    
+    def _assemble_galerkin_system(self, mu, coef=None):
+
+        r = len(self.Ur)
+        p = len(self.SAr)
+        SAr = np.zeros((r,r), dtype=self.theta.dtype)
+        Sbr = np.zeros((r), dtype=self.theta.dtype)
+        for i in range(p):
+            SAr += coef[i] * self.SAr[i].assemble(mu).matrix
+            Sbr += coef[i] * self.Sbr[i].assemble(mu).matrix.reshape(-1)
+        return SAr, Sbr
+    
+    
+    def _sub_galerkin_system(self, P):
+        Ur = self.Ur
+        SUr = self.SUr
+        lhs_operators = []
+        for Ai in self.lhs.operators:
+            SVr = self.theta.apply(P.apply(Ai.apply(Ur)))
+            mat = SUr.inner(SVr)
+            lhs_operators.append(NumpyMatrixOperator(mat, source_id=Ur.space.id, range_id=Ur.space.id))
+        gal_lhs = LincombOperator(lhs_operators, self.lhs.coefficients)
         
         rhs_operators = []
         for bi in self.rhs.operators:
             SF = self.theta.apply(P.apply(bi.as_range_array()))
-            mat = self.SUr.inner(SF)
-            rhs_operators.append(NumpyMatrixOperator(mat, range_id=self.Ur.space.id))
-        galerkin_rhs = LincombOperator(rhs_operators, self.rhs.coefficients)
-        self.galerkin_rhs_lst.append(galerkin_rhs)
-        
-    
-    def _project_PhUr(self, P):
-        # for galerkin
-        V = P.apply(self.range_AUr)
-        V = self.theta.apply(V)
-        U = self.theta.apply(self.Ur)
-        result = U.inner(V)
-        return result
+            mat = SUr.inner(SF)
+            rhs_operators.append(NumpyMatrixOperator(mat, range_id=Ur.space.id))
+        gal_rhs = LincombOperator(rhs_operators, self.rhs.coefficients)
+            
+        return gal_lhs, gal_rhs
     
     
-    def _project_Ph_u_u(self, P):
-        # for delta U->U
-        omega_h = self.omega_u_u.as_source_array().conj()
-        V = self.sqrt_product.apply_adjoint(omega_h)
-        V = P.apply_adjoint(V)
-        result = V.inner(self.range_AS_u_u)
-        return result
-    
-    
-    def _project_Ph_u_ur(self, P):
-        # for delta U->Ur'
-        V = P.apply(self.range_AS_u_ur)
-        V = self.theta.apply(V)
-        U = self.theta.apply(self.Ur)
-        mat = U.inner(V)
-        omega = self.omega_u_ur.get_matrix()
-        result = omega @ mat
-        return result
-    
-    
-    def _project_Ph_ur_ur(self, P):
-        # for delta Ur->Ur'
-        V = P.apply(self.range_AS_ur_ur)
-        V = self.theta.apply(V)
-        U = self.theta.apply(self.Ur)
-        mat = U.inner(V)
-        omega = self.omega_ur_ur.get_matrix()
-        result = omega @ mat
-        return result
-
-
-    def _assemble_galerkin_system(self, mu, coef):
-
-        r = len(self.Ur)
-        p = len(self.projected_PhUr_lst)
-        
-        # first compute the range of AUr
-        V = self.projected_AUr.assemble(mu).matrix
-        
-        # Then assemble the projected range of PhUr and the galerkin rhs
-        W = np.zeros((r, V.shape[0]), dtype=V.dtype)
-        galerkin_rhs = np.zeros((r,1), dtype=self.theta.dtype)
-        for i in range(p):
-            W = W + coef[i] * self.projected_PhUr_lst[i]
-            galerkin_rhs += coef[i] * self.galerkin_rhs_lst[i].assemble(mu).matrix
-        
-        galerkin_lhs = np.dot(W.conj(), V)
-        
-        return galerkin_lhs, galerkin_rhs
-        
-
     def fit(self, mus, which=1, alpha=0, solver='minres_ls', **kwargs):
         """
         Compute the coefficients and the associated errors of the ls minimization
@@ -222,9 +140,9 @@ class SketchedPreconditioner:
 
         Returns
         -------
-        coefs : (len(mus), n_preconditioners) ndarray
+        coefs : () ndarray
             The coefficients in the preconditioners space.
-        errors : (len(mus),) ndarray
+        errors : TYPE
             The associated errors.
 
         """
@@ -236,67 +154,90 @@ class SketchedPreconditioner:
             ls_rhs = self._sketch_u_ur(I).to_numpy().T
         elif which == 3:
             ls_rhs = self._sketch_ur_ur(I).to_numpy().T
-        # elif which == 4:
-        #     h1 = self._sketch_u_ur(I).to_numpy().T
-        #     h2 = self._sketch_ur_ur(I).to_numpy().T
-        #     ls_rhs = np.block([[alpha * h1], [h2]])
+        elif which == 4:
+            h1 = self._sketch_u_ur(I).to_numpy().T
+            h2 = self._sketch_ur_ur(I).to_numpy().T
+            ls_rhs = np.block([[alpha * h1], [h2]])
         else:
             print("Selected error indicator not valid")
         
-        coefs = np.zeros((len(mus), len(self.projected_PhUr_lst)), dtype=ls_rhs.dtype)
+        coefs = np.zeros((len(mus), len(self.pa_ur_ur)), dtype=ls_rhs.dtype)
         errors = np.zeros(len(mus))
         
         for i in range(len(mus)):
             ls_lhs = self._assemble_ls_matrices(mus[i], which)
             if solver == 'minres_ls':
-                coef, err, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs, rcond=None)
+                coef, err, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs.reshape(-1), rcond=None)
             elif solver in ('omp', 'omp_spams', 'omp_sklearn', 'stepwise'):
                 coef, _ = sparse_minres_solver(ls_lhs, ls_rhs, **kwargs)
-                residual = np.dot(ls_lhs, coef) - ls_rhs
+                residual = np.dot(ls_lhs, coef) - ls_rhs.reshape(-1)
                 err = np.linalg.norm(residual)**2
-            coefs[i] = coef[:,0]
+            coefs[i] = coef
             errors[i] = np.sqrt(err)
         
         return coefs, errors
     
     
     def _assemble_ls_matrices(self, mu, which=1, alpha=0):
-        
+        coef = np.array(self.lhs.evaluate_coefficients(mu))
         if which == 1:
-            gamma = self.gamma_u_u
-            projected_P_lst = self.projected_Ph_u_u_lst
-            right_mat = self.projected_A_u_u.assemble(mu).matrix
+            vec = self.gamma_u_u.range.empty()
+            pa_lst = self.pa_u_u
         elif which == 2:
-            gamma = self.gamma_u_ur
-            projected_P_lst = self.projected_Ph_u_ur_lst
-            right_mat = self.projected_A_u_ur.assemble(mu).matrix
+            vec = self.gamma_u_ur.range.empty()
+            pa_lst = self.pa_u_ur
         elif which == 3:
-            gamma = self.gamma_ur_ur
-            projected_P_lst = self.projected_Ph_ur_ur_lst
-            right_mat = self.projected_A_ur_ur.assemble(mu).matrix
-        else:
+            vec = self.gamma_ur_ur.range.empty()
+            pa_lst = self.pa_ur_ur
+        elif which != 4:
             print("Selected error indicator not valid")
 
-        W = gamma.range.empty()
-        for projected_P in projected_P_lst:
-            mat = projected_P @ right_mat
-            vec_mat = np.concatenate([mat[:,j] for j in range(mat.shape[1])])
-            vec = gamma.apply(gamma.source.from_numpy(vec_mat.T))
-            W.append(vec)
-        result = W.to_numpy().T
+        if which in (1,2,3):
+            for pa in pa_lst:
+                vec.append(pa.lincomb(coef))
+            mat = vec.to_numpy().T
+        else:
+            m2 = self._assemble_ls_matrices(mu, which=2)
+            m3 = self._assemble_ls_matrices(mu, which=3)
+            mat = np.block([[alpha * m2], [m3]])
+            
+        return mat
     
+    
+    def _sketch_pa_u_u(self, P):
+        result = self.gamma_u_u.range.empty()
+        for Ai in self.lhs.operators:
+            op = ConcatenationOperator((P, Ai))
+            v = self._sketch_u_u(op)
+            result.append(v)
+        return result
+            
+    
+    def _sketch_pa_u_ur(self, P):
+        result = self.gamma_u_ur.range.empty()
+        for Ai in self.lhs.operators:
+            op = ConcatenationOperator((P, Ai))
+            v = self._sketch_u_ur(op)
+            result.append(v)
         return result
 
+
+    def _sketch_pa_ur_ur(self, P):
+        result = self.gamma_ur_ur.range.empty()
+        for Ai in self.lhs.operators:
+            op = ConcatenationOperator((P, Ai))
+            v = self._sketch_ur_ur(op)
+            result.append(v)
+        return result
+    
 
     def _sketch_u_u(self, op):
         sigma_h = self.sigma_u_u.as_source_array().conj()
         omega = self.omega_u_u
         gamma = self.gamma_u_u
-        Ru = self.product
         Q = self.sqrt_product
 
         u = Q.apply_adjoint(sigma_h)
-        u = Ru.apply_inverse(u)
         u = op.apply(u)
         u = Q.apply(u)
         u = omega.apply(u).to_numpy().T
