@@ -11,6 +11,7 @@ from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.operators.constructions import LincombOperator, ConcatenationOperator, AdjointOperator
 from pymor.parameters.functionals import ConstantParameterFunctional, ParameterFunctional, ExpressionParameterFunctional, ConjugateParameterFunctional
 from pymor.parameters.base import Mu
+from pymor.algorithms.gram_schmidt import gram_schmidt
 
 
 def apply_affine(A, U):
@@ -43,6 +44,36 @@ def apply_affine(A, U):
             )
         )
     res = LincombOperator(operators, A.coefficients, name=A.name)
+    return res
+
+
+def apply2_affine(A, V, U):
+    """
+    Build a LincombOperator of NumpyMatrixOperators from the affine terms of A, 
+    such as the result is V^H @ A @ U.
+
+    Parameters
+    ----------
+    A : LincombOperator
+        
+    V : NumpyVectorArray
+        The range_vector_array
+    
+    U : NumpyVectorArray
+        The source vector array
+        
+    Returns
+    -------
+    res : LincombOperator
+        The affine terms are V^H @ A_i @ U 
+
+    """
+
+    operators = []
+    for op in A.operators:
+        mat = op.apply2(V, U)
+        operators.append(NumpyMatrixOperator(mat))
+    res = LincombOperator(operators, A.coefficients)
     return res
 
 
@@ -280,3 +311,34 @@ def lincomb_select_dofs(A, dofs, axis):
         operators.append(op)
     result = LincombOperator(operators, A.coefficients)
     return result
+
+
+
+def lincomb_ortho_range(A, U, product):
+    """
+    Compute an orthonormal basis of the range of A @ Ur based on the 
+    affine representation of A, using gram schmidt.
+
+    Parameters
+    ----------
+    A : LincombOperator
+        Seen as a U->U' operator.
+    U : NumpyVectorArray
+        
+    product : Operator
+        The inner product matrix for orthonormalisation
+
+    Returns
+    -------
+    Q : NumpyVectorArray
+        The orthonormalised range array.
+        
+    """
+    W = A.source.empty()
+    for op in A.operators:
+        w = product.apply_inverse(op.apply(U))
+        W.append(w)
+    Q, R = gram_schmidt(W, return_R=True)
+    return Q, R
+
+

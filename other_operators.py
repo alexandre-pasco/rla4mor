@@ -129,7 +129,10 @@ class ImplicitInverseOperator(Operator):
         
         
 class ScipyLinearOperator(LinearOperator):
-    
+    """
+    Class used to wrap a pymor Operator to a scipy LinearOperator, which can
+    be used as a preconditioner for iterative solving method like GMRES.
+    """
     def __init__(self, operator):
         self.operator = operator
         self.shape = (operator.range.dim, operator.source.dim)
@@ -141,3 +144,5 @@ class ScipyLinearOperator(LinearOperator):
     def _rmatvec(self, x):
         u = self.operator.range.from_numpy(x)
         return self.operator.apply_adjoint(u).to_numpy().reshape(-1)
+    
+    
