@@ -272,7 +272,7 @@ def lincomb_join(A, B, axis=0):
         for i in range(len(A.operators)):
            matA = A.operators[i].matrix
            matB = B.operators[i].matrix
-           mat = np.concatenate((matA, matB), axis=axis)
+           mat = np.append(matA, matB, axis=axis)
            op = NumpyMatrixOperator(mat, source_id=A.source.id, range_id=A.range.id)
            operators.append(op)
         result = LincombOperator(operators, A.coefficients)
