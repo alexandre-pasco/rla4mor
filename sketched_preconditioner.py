@@ -76,34 +76,67 @@ class SketchedPreconditioner:
         self.projected_AUr = apply2_affine(lhs, Q_AUr, Ur)
         self.projected_PhUr_lst = []
         
-        # for delta U->U'
-        source = self.product.apply_inverse(
-            self.sqrt_product.apply_adjoint(sigma_u_u.as_source_array().conj())
-            )
-        Q, R = lincomb_ortho_range(lhs, source, self.product)
-        # self.T_u_u = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
-        self.range_AS_u_u = Q
-        self.projected_A_u_u = apply2_affine(lhs, Q, source)
-        self.projected_Ph_u_u_lst = []
+        # # for delta U->U'
+        # source = self.product.apply_inverse(
+        #     self.sqrt_product.apply_adjoint(sigma_u_u.as_source_array().conj())
+        #     )
+        # Q, R = lincomb_ortho_range(lhs, source, self.product)
+        # # self.T_u_u = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
+        # self.range_AS_u_u = Q
+        # self.projected_A_u_u = apply2_affine(lhs, Q, source)
+        # self.projected_Ph_u_u_lst = []
         
-        # for delta U->Ur'
-        source = self.product.apply_inverse(
-            self.sqrt_product.apply_adjoint(sigma_u_ur.as_source_array().conj())
-            )
-        Q, R = lincomb_ortho_range(lhs, source, self.product)
-        # self.T_u_ur = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
-        self.range_AS_u_ur = Q
-        self.projected_A_u_ur = apply2_affine(lhs, Q, source)
-        self.projected_Ph_u_ur_lst = []
+        # # for delta U->Ur'
+        # source = self.product.apply_inverse(
+        #     self.sqrt_product.apply_adjoint(sigma_u_ur.as_source_array().conj())
+        #     )
+        # Q, R = lincomb_ortho_range(lhs, source, self.product)
+        # # self.T_u_ur = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
+        # self.range_AS_u_ur = Q
+        # self.projected_A_u_ur = apply2_affine(lhs, Q, source)
+        # self.projected_Ph_u_ur_lst = []
         
-        # for delta Ur->Ur
-        source = lhs.source.from_numpy((Ur.to_numpy().T @ sigma_ur_ur.get_matrix()).T)
-        self.range_AS_ur_ur = Q_AUr
-        self.projected_A_ur_ur = apply2_affine(lhs, Q_AUr, source)
-        self.projected_Ph_ur_ur_lst = []
+        # # for delta Ur->Ur
+        # source = lhs.source.from_numpy((Ur.to_numpy().T @ sigma_ur_ur.get_matrix()).T)
+        # self.range_AS_ur_ur = Q_AUr
+        # self.projected_A_ur_ur = apply2_affine(lhs, Q_AUr, source)
+        # self.projected_Ph_ur_ur_lst = []
 
 
     def add_preconditioner(self, P, mu=None):
+        self.mus.append(mu)
+        
+        # for galerkin
+        tic = perf_counter()
+        projected_PhUr= self._project_PhUr(P)
+        print(f'range(Ar)h @ Ph @ Ur in {perf_counter()-tic:.3f} s')
+        self.projected_PhUr_lst.append(projected_PhUr)
+        
+        # for delta U->U'
+        tic = perf_counter()
+        self.pa_u_u.append(self._sketch_pa_u_u(P))
+        print(f'HS(U->U\') sketched in {perf_counter()-tic:.3f} s')
+        
+        # for delta U->Ur'
+        tic = perf_counter()
+        self.pa_u_ur.append(self._sketch_pa_u_ur(P))
+        print(f'HS(Ur->Ur\') sketched in {perf_counter()-tic:.3f} s')
+        
+        # for delta Ur->Ur'
+        tic = perf_counter()
+        self.pa_ur_ur.append(self._sketch_pa_ur_ur(P))
+        print(f'HS(Ur->Ur\') sketched in {perf_counter()-tic:.3f} s')
+        
+        rhs_operators = []
+        for bi in self.rhs.operators:
+            SF = self.theta.apply(P.apply(bi.as_range_array()))
+            mat = self.SUr.inner(SF)
+            rhs_operators.append(NumpyMatrixOperator(mat, range_id=self.Ur.space.id))
+        galerkin_rhs = LincombOperator(rhs_operators, self.rhs.coefficients)
+        self.galerkin_rhs_lst.append(galerkin_rhs)
+
+
+    def add_preconditioner_range_based(self, P, mu=None):
         self.mus.append(mu)
         
         # for galerkin
@@ -141,7 +174,7 @@ class SketchedPreconditioner:
     
     def _project_PhUr(self, P):
         # for galerkin
-        V = P.apply(self.range_AUr)
+        V = P.apply(self.product.apply(self.range_AUr))
         V = self.theta.apply(V)
         U = self.theta.apply(self.Ur)
         result = U.inner(V)
@@ -228,7 +261,7 @@ class SketchedPreconditioner:
             The associated errors.
 
         """
-        
+        tic = perf_counter()
         I = IdentityOperator(self.lhs.source)
         if which == 1:
             ls_rhs = self._sketch_u_u(I).to_numpy().T
@@ -236,32 +269,96 @@ class SketchedPreconditioner:
             ls_rhs = self._sketch_u_ur(I).to_numpy().T
         elif which == 3:
             ls_rhs = self._sketch_ur_ur(I).to_numpy().T
-        # elif which == 4:
-        #     h1 = self._sketch_u_ur(I).to_numpy().T
-        #     h2 = self._sketch_ur_ur(I).to_numpy().T
-        #     ls_rhs = np.block([[alpha * h1], [h2]])
+        elif which == 4:
+            h1 = self._sketch_u_ur(I).to_numpy().T
+            h2 = self._sketch_ur_ur(I).to_numpy().T
+            ls_rhs = np.block([[alpha * h1], [h2]])
         else:
             print("Selected error indicator not valid")
         
-        coefs = np.zeros((len(mus), len(self.projected_PhUr_lst)), dtype=ls_rhs.dtype)
+        coefs = np.zeros((len(mus), len(self.mus)), dtype=ls_rhs.dtype)
         errors = np.zeros(len(mus))
         
         for i in range(len(mus)):
-            ls_lhs = self._assemble_ls_matrices(mus[i], which)
+            ls_lhs = self._assemble_ls_matrices(mus[i], which, alpha)
             if solver == 'minres_ls':
                 coef, err, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs, rcond=None)
             elif solver in ('omp', 'omp_spams', 'omp_sklearn', 'stepwise'):
                 coef, _ = sparse_minres_solver(ls_lhs, ls_rhs, **kwargs)
                 residual = np.dot(ls_lhs, coef) - ls_rhs
                 err = np.linalg.norm(residual)**2
+                err = max(np.finfo(err.dtype).resolution)
             coefs[i] = coef[:,0]
             errors[i] = np.sqrt(err)
-        
+        print(f"Fitting on param set in {perf_counter() - tic:.3f}s")
         return coefs, errors
     
     
     def _assemble_ls_matrices(self, mu, which=1, alpha=0):
-        
+        """
+        Assemble least-square matrix based on the affine representation P_i @ A_j.
+
+        Parameters
+        ----------
+        mu : TYPE
+            DESCRIPTION.
+        which : TYPE, optional
+            DESCRIPTION. The default is 1.
+        alpha : TYPE, optional
+            DESCRIPTION. The default is 0.
+
+        Returns
+        -------
+        result : TYPE
+            DESCRIPTION.
+
+        """
+        coef = np.array(self.lhs.evaluate_coefficients(mu))
+        if which == 1:
+            vec = self.gamma_u_u.range.empty()
+            pa_lst = self.pa_u_u
+        elif which == 2:
+            vec = self.gamma_u_ur.range.empty()
+            pa_lst = self.pa_u_ur
+        elif which == 3:
+            vec = self.gamma_ur_ur.range.empty()
+            pa_lst = self.pa_ur_ur
+        elif which != 4:
+            print("Selected error indicator not valid")
+
+        if which in (1,2,3):
+            for pa in pa_lst:
+                vec.append(pa.lincomb(coef))
+            mat = vec.to_numpy().T
+        else:
+            m2 = self._assemble_ls_matrices(mu, which=2)
+            m3 = self._assemble_ls_matrices(mu, which=3)
+            mat = np.block([[alpha * m2], [m3]])
+            
+        return mat
+
+    
+    
+    def _assemble_ls_matrices_range_based(self, mu, which=1, alpha=0):
+        """
+        Assemble least-square matrix based on the affine representation 
+        P_i @ range(A) and range(A)h @ A_j.
+
+        Parameters
+        ----------
+        mu : TYPE
+            DESCRIPTION.
+        which : TYPE, optional
+            DESCRIPTION. The default is 1.
+        alpha : TYPE, optional
+            DESCRIPTION. The default is 0.
+
+        Returns
+        -------
+        result : TYPE
+            DESCRIPTION.
+
+        """
         if which == 1:
             gamma = self.gamma_u_u
             projected_P_lst = self.projected_Ph_u_u_lst
@@ -342,7 +439,32 @@ class SketchedPreconditioner:
         v = gamma.apply(gamma.source.from_numpy(u_vec))
         return v
 
+
+    def _sketch_pa_u_u(self, P):
+        result = self.gamma_u_u.range.empty()
+        for Ai in self.lhs.operators:
+            op = ConcatenationOperator((P, Ai))
+            v = self._sketch_u_u(op)
+            result.append(v)
+        return result
             
+    
+    def _sketch_pa_u_ur(self, P):
+        result = self.gamma_u_ur.range.empty()
+        for Ai in self.lhs.operators:
+            op = ConcatenationOperator((P, Ai))
+            v = self._sketch_u_ur(op)
+            result.append(v)
+        return result
+
+
+    def _sketch_pa_ur_ur(self, P):
+        result = self.gamma_ur_ur.range.empty()
+        for Ai in self.lhs.operators:
+            op = ConcatenationOperator((P, Ai))
+            v = self._sketch_ur_ur(op)
+            result.append(v)
+        return result            
 
 
 

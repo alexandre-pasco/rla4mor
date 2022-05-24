@@ -8,7 +8,7 @@ Created on Thu Apr 14 15:34:58 2022
 
 import numpy as np
 from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.operators.constructions import LincombOperator, ConcatenationOperator, AdjointOperator
+from pymor.operators.constructions import LincombOperator, ConcatenationOperator, AdjointOperator, InverseOperator
 from pymor.parameters.functionals import ConstantParameterFunctional, ParameterFunctional, ExpressionParameterFunctional, ConjugateParameterFunctional
 from pymor.parameters.base import Mu
 from pymor.algorithms.gram_schmidt import gram_schmidt
@@ -316,8 +316,8 @@ def lincomb_select_dofs(A, dofs, axis):
 
 def lincomb_ortho_range(A, U, product):
     """
-    Compute an orthonormal basis of the range of A @ Ur based on the 
-    affine representation of A, using gram schmidt.
+    Compute an orthonormal basis of the range of inv_product @ A @ Ur 
+    based on the affine representation of A, using gram schmidt.
 
     Parameters
     ----------
@@ -338,7 +338,7 @@ def lincomb_ortho_range(A, U, product):
     for op in A.operators:
         w = product.apply_inverse(op.apply(U))
         W.append(w)
-    Q, R = gram_schmidt(W, return_R=True)
+    Q, R = gram_schmidt(W, return_R=True, product=product)
     return Q, R
 
 
