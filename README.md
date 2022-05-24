@@ -3,7 +3,7 @@
 Implementing randomized linear algebra methods for model order reduction.
 
 ## Requirements :
-This work is based on some packages listed below. For some reasons, conda may takes forever to solve environnement when installing packages from conda-forge. A solution may be to use pip instead (when it is possible), but it is still obscure...
+This work is based on some packages listed below. For some reasons, conda can take forever to solve environment when installing packages from conda-forge. A solution may be to use pip instead (when possible), but it is still obscure...
 
 - numpy (`conda install numpy`);
 - scipy (`conda install scipy`);
