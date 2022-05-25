@@ -12,6 +12,7 @@ from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.operators.constructions import IdentityOperator, ConcatenationOperator, \
     InverseOperator, AdjointOperator, LincombOperator
 from pymor.algorithms.gram_schmidt import gram_schmidt
+from pymor.algorithms.greedy import WeakGreedySurrogate
 from scipy.sparse import csc_matrix
 
 from affine_operations import *
@@ -76,31 +77,34 @@ class SketchedPreconditioner:
         self.projected_AUr = apply2_affine(lhs, Q_AUr, Ur)
         self.projected_PhUr_lst = []
         
-        # # for delta U->U'
-        # source = self.product.apply_inverse(
-        #     self.sqrt_product.apply_adjoint(sigma_u_u.as_source_array().conj())
-        #     )
-        # Q, R = lincomb_ortho_range(lhs, source, self.product)
-        # # self.T_u_u = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
-        # self.range_AS_u_u = Q
-        # self.projected_A_u_u = apply2_affine(lhs, Q, source)
-        # self.projected_Ph_u_u_lst = []
-        
-        # # for delta U->Ur'
-        # source = self.product.apply_inverse(
-        #     self.sqrt_product.apply_adjoint(sigma_u_ur.as_source_array().conj())
-        #     )
-        # Q, R = lincomb_ortho_range(lhs, source, self.product)
-        # # self.T_u_ur = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
-        # self.range_AS_u_ur = Q
-        # self.projected_A_u_ur = apply2_affine(lhs, Q, source)
-        # self.projected_Ph_u_ur_lst = []
-        
-        # # for delta Ur->Ur
-        # source = lhs.source.from_numpy((Ur.to_numpy().T @ sigma_ur_ur.get_matrix()).T)
-        # self.range_AS_ur_ur = Q_AUr
-        # self.projected_A_ur_ur = apply2_affine(lhs, Q_AUr, source)
-        # self.projected_Ph_ur_ur_lst = []
+        # for now, we compute the indicators based on the naive affine PiAj
+        range_based_indicators = False
+        if range_based_indicators:
+            # for delta U->U'
+            source = self.product.apply_inverse(
+                self.sqrt_product.apply_adjoint(sigma_u_u.as_source_array().conj())
+                )
+            Q, R = lincomb_ortho_range(lhs, source, self.product)
+            # self.T_u_u = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
+            self.range_AS_u_u = Q
+            self.projected_A_u_u = apply2_affine(lhs, Q, source)
+            self.projected_Ph_u_u_lst = []
+            
+            # for delta U->Ur'
+            source = self.product.apply_inverse(
+                self.sqrt_product.apply_adjoint(sigma_u_ur.as_source_array().conj())
+                )
+            Q, R = lincomb_ortho_range(lhs, source, self.product)
+            # self.T_u_ur = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
+            self.range_AS_u_ur = Q
+            self.projected_A_u_ur = apply2_affine(lhs, Q, source)
+            self.projected_Ph_u_ur_lst = []
+            
+            # for delta Ur->Ur
+            source = lhs.source.from_numpy((Ur.to_numpy().T @ sigma_ur_ur.get_matrix()).T)
+            self.range_AS_ur_ur = Q_AUr
+            self.projected_A_ur_ur = apply2_affine(lhs, Q_AUr, source)
+            self.projected_Ph_ur_ur_lst = []
 
 
     def add_preconditioner(self, P, mu=None):
@@ -213,7 +217,7 @@ class SketchedPreconditioner:
 
 
     def _assemble_galerkin_system(self, mu, coef):
-
+        
         r = len(self.Ur)
         p = len(self.projected_PhUr_lst)
         
@@ -262,6 +266,28 @@ class SketchedPreconditioner:
 
         """
         tic = perf_counter()
+        
+        ls_rhs = self._compute_ls_rhs(which, alpha)
+        
+        coefs = np.zeros((len(mus), len(self.mus)), dtype=ls_rhs.dtype)
+        errors = np.zeros(len(mus))
+        
+        for i in range(len(mus)):
+            ls_lhs = self._assemble_ls_matrices(mus[i], which, alpha)
+            if solver == 'minres_ls':
+                coef, err, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs, rcond=None)
+            elif solver in ('omp', 'omp_spams', 'omp_sklearn', 'stepwise'):
+                coef, _ = sparse_minres_solver(ls_lhs, ls_rhs, **kwargs)
+                residual = np.dot(ls_lhs, coef) - ls_rhs
+                err = np.linalg.norm(residual)**2
+            err = max(np.finfo(err.dtype).resolution, err)
+            coefs[i] = coef[:,0]
+            errors[i] = np.sqrt(err)
+        print(f"Fitting on param set in {perf_counter() - tic:.3f}s")
+        return coefs, errors
+    
+    
+    def _compute_ls_rhs(self, which=1, alpha=0):
         I = IdentityOperator(self.lhs.source)
         if which == 1:
             ls_rhs = self._sketch_u_u(I).to_numpy().T
@@ -275,23 +301,7 @@ class SketchedPreconditioner:
             ls_rhs = np.block([[alpha * h1], [h2]])
         else:
             print("Selected error indicator not valid")
-        
-        coefs = np.zeros((len(mus), len(self.mus)), dtype=ls_rhs.dtype)
-        errors = np.zeros(len(mus))
-        
-        for i in range(len(mus)):
-            ls_lhs = self._assemble_ls_matrices(mus[i], which, alpha)
-            if solver == 'minres_ls':
-                coef, err, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs, rcond=None)
-            elif solver in ('omp', 'omp_spams', 'omp_sklearn', 'stepwise'):
-                coef, _ = sparse_minres_solver(ls_lhs, ls_rhs, **kwargs)
-                residual = np.dot(ls_lhs, coef) - ls_rhs
-                err = np.linalg.norm(residual)**2
-                err = max(np.finfo(err.dtype).resolution)
-            coefs[i] = coef[:,0]
-            errors[i] = np.sqrt(err)
-        print(f"Fitting on param set in {perf_counter() - tic:.3f}s")
-        return coefs, errors
+        return ls_rhs
     
     
     def _assemble_ls_matrices(self, mu, which=1, alpha=0):
@@ -338,6 +348,28 @@ class SketchedPreconditioner:
         return mat
 
     
+    def _evaluate_ls_errors(self, mus, coefs, which=1, alpha=0):
+        tic = perf_counter()
+        ls_rhs = self._compute_ls_rhs(which, alpha).reshape(-1)
+        errors = np.zeros(len(mus))
+        for i in range(len(mus)):
+            ls_lhs = self._assemble_ls_matrices(mus[i], which, alpha)
+            residual = np.dot(ls_lhs, coefs[i]) - ls_rhs
+            err = np.linalg.norm(residual)
+            errors[i] = err
+        print(f"Evaluate error {which} on param set in {perf_counter() - tic:.3f}s")
+        return errors
+    
+    
+    def _evaluate_galerkin_cond(self, mus, coefs):
+        tic = perf_counter()
+        cond = np.zeros(len(mus))
+        for i in range(len(mus)):
+            mu = mus[i]
+            Ar, _ = self._assemble_galerkin_system(mu, coefs[i])
+            cond[i] = np.linalg.cond(Ar)
+        print(f"Evaluate galerkin cond on param set in {perf_counter() - tic:.3f}s")
+        return cond
     
     def _assemble_ls_matrices_range_based(self, mu, which=1, alpha=0):
         """
@@ -468,94 +500,30 @@ class SketchedPreconditioner:
 
 
 
-if __name__ == '__main__':
+class SketchedPreconditionerSurrogate(WeakGreedySurrogate):
     
-    from pymor.analyticalproblems.thermalblock import thermal_block_problem
-    from pymor.discretizers.builtin import discretize_stationary_cg
-    p = thermal_block_problem((2, 2))
-    fom, _ = discretize_stationary_cg(p, diameter=1/75)
-    param_space = fom.parameters.space(0.0001, 1.)
-    lhs = fom.operator
-    rhs = LincombOperator([fom.rhs], [1.])
-    Ru = fom.h1_0_product
-    Qu = CholeskyOperator(Ru.matrix, source_id=Ru.source.id, range_id=Ru.source.id)
-    N = lhs.source.dim
+    def __init__(self, sketched_preconditioner, preconditioner_generator, which_fit, which_err):
+        self.__auto_init(locals())
     
-    mus = param_space.sample_randomly(10)
-    mus.append(Mu({"diffusion":[0.001, 1, 0.001, 1]}))
-    U = lhs.source.empty()
-    for mu in mus:
-        U.append(lhs.apply_inverse(rhs.as_range_array(mu), mu))
-    U = gram_schmidt(U, product=Ru)
-    
-    mu_test = param_space.sample_randomly(1)
-    U_test = lhs.source.empty()
-    for mu in mu_test:
-        U_test.append(lhs.apply_inverse(rhs.as_range_array(mu), mu))
-    
-    
-    
-    theta = SrhtEmbedding(source_dim=lhs.source.dim, range_dim=1000, sqrt_product=Qu, source_id=lhs.source.id)
-    
-    kwargs = {
-        'sigma_u_u':SrhtEmbedding(source_dim=N, range_dim=20, source_id=lhs.source.id),
-        'omega_u_u':SrhtEmbedding(source_dim=N, range_dim=20, source_id=lhs.source.id),
-        'gamma_u_u':SrhtEmbedding(source_dim=20*20, range_dim=20),
+    def evaluate(self, mus, return_all_values=False):
+        coefs, _ = self.sketched_preconditioner.fit(mus, self.which_fit, return_residuals=True)
+        if self.which_err in (1,2,3,4):
+            errors = self.sketched_preconditioner._evaluate_ls_errors(mus, coefs, self.which_err)
+        else: #conditionning based
+            errors = self.sketched_preconditioner._evaluate_galerkin_cond(mus, coefs)
         
-        'sigma_u_ur':SrhtEmbedding(source_dim=N, range_dim=20, source_id=lhs.source.id),
-        'omega_u_ur':SrhtEmbedding(source_dim=len(U), range_dim=20, source_id=lhs.source.id),
-        'gamma_u_ur':SrhtEmbedding(source_dim=20*20, range_dim=20),
+        if return_all_values:
+            result = errors
+        else:
+            i_max = errors.argmax()
+            result = (errors.max(), mus[i_max])
+        return result
+    
+    def extend(self, mu):
+        P = self.preconditioner_generator(mu)
+        self.sketched_preconditioner.add_preconditioner(P, mu)
         
-        'sigma_ur_ur':SrhtEmbedding(source_dim=len(U), range_dim=20, source_id=lhs.source.id),
-        'omega_ur_ur':SrhtEmbedding(source_dim=len(U), range_dim=20, source_id=lhs.source.id),
-        'gamma_ur_ur':SrhtEmbedding(source_dim=20*20, range_dim=20)
-        }
-    
-    sp = SketchedPreconditioner(lhs, rhs, U, theta, **kwargs)
-    
-    Ru_inv = InverseOperator(Ru)
-    sp.add_preconditioner(Ru_inv)
-    for mu in mus:
-        P = ImplicitInverseOperator(lhs.assemble(mu).matrix, source_id=lhs.range.id, range_id=lhs.source.id)
-        sp.add_preconditioner(P)
 
-    # Test
-    
-    # mu = mu_test[0]
-    # u = U_test[0]
-    mu = Mu({"diffusion":[0.01, 1, 0.01, 1]})
-    u = lhs.apply_inverse(rhs.as_range_array(mu), mu)
-    u_proj = U.lincomb(U.inner(u, Ru).T)
 
-    # Sketched galerkin
-
-    sr = SketchedRom(lhs, rhs, embedding=theta, product=Ru)
-    sr.add_vectors(U, mus)
-    coef, _ = sr.solve_rom(mu, 'galerkin')
-
-    u_gal = U.lincomb(coef.to_numpy().reshape(-1))
-            
-    print("Proj error", (u-u_proj).norm(Ru) / u.norm(Ru))
-    print("Gal error", (u-u_gal).norm(Ru) / u.norm(Ru))
-    print("Gal Proj error", (u_proj-u_gal).norm(Ru) / u.norm(Ru))
-    
-    # Preconditioned sketched galerkin
-    
-    pa1 = sp._assemble_ls_matrices(mu, which=1)
-    pa2 = sp._assemble_ls_matrices(mu, which=2)
-    pa3 = sp._assemble_ls_matrices(mu, which=3)
-    
-    h1 = sp._sketch_u_u(IdentityOperator(lhs.source))
-    h2 = sp._sketch_u_ur(IdentityOperator(lhs.source))
-    h3 = sp._sketch_ur_ur(IdentityOperator(lhs.source))
-    
-    coef, residual, _, _ = np.linalg.lstsq(pa1.to_numpy().T, h1.to_numpy().reshape(-1), rcond=None)
-    
-    Ar, br = sp._assemble_galerkin_system(mu, coef)
-    u_gal = U.lincomb(np.linalg.solve(Ar, br))
-            
-    print("Proj error", (u-u_proj).norm(Ru) / u.norm(Ru))
-    print("Gal error", (u-u_gal).norm(Ru) / u.norm(Ru))
-    print("Gal Proj error", (u_proj-u_gal).norm(Ru) / u.norm(Ru))
     
     
