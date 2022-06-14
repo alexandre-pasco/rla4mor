@@ -314,7 +314,7 @@ def lincomb_select_dofs(A, dofs, axis):
 
 
 
-def lincomb_ortho_range(A, U, product):
+def lincomb_ortho_range(A, U, product, sqrt_product):
     """
     Compute an orthonormal basis of the range of inv_product @ A @ Ur 
     based on the affine representation of A, using gram schmidt.
@@ -338,7 +338,10 @@ def lincomb_ortho_range(A, U, product):
     for op in A.operators:
         w = product.apply_inverse(op.apply(U))
         W.append(w)
-    Q, R = gram_schmidt(W, return_R=True, product=product)
+    # Q, R = gram_schmidt(W, return_R=True, product=product)
+    QuW = sqrt_product.apply(W)
+    Q_bis, R = np.linalg.qr(QuW.to_numpy().T)
+    Q = product.apply_inverse(sqrt_product.apply_adjoint(A.source.from_numpy(Q_bis.T)))
     return Q, R
 
 
