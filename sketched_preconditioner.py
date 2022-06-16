@@ -72,7 +72,7 @@ class SketchedPreconditioner:
         ####
         
         # for galerkin
-        Q_AUr, _ = lincomb_ortho_range(lhs, Ur, self.product)
+        Q_AUr, _ = lincomb_ortho_range(lhs, Ur, self.product, self.sqrt_product)
         self.range_AUr = Q_AUr
         self.projected_AUr = apply2_affine(lhs, Q_AUr, Ur)
         self.projected_PhUr_lst = []
@@ -231,7 +231,7 @@ class SketchedPreconditioner:
             W = W + coef[i] * self.projected_PhUr_lst[i]
             galerkin_rhs += coef[i] * self.galerkin_rhs_lst[i].assemble(mu).matrix
         
-        galerkin_lhs = np.dot(W.conj(), V)
+        galerkin_lhs = np.dot(W, V)
         
         return galerkin_lhs, galerkin_rhs
         
@@ -278,6 +278,7 @@ class SketchedPreconditioner:
                 coef, err, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs, rcond=None)
             elif solver in ('omp', 'omp_spams', 'omp_sklearn', 'stepwise'):
                 coef, _ = sparse_minres_solver(ls_lhs, ls_rhs, **kwargs)
+                coef = coef.reshape(-1,1)
                 residual = np.dot(ls_lhs, coef) - ls_rhs
                 err = np.linalg.norm(residual)**2
             err = max(np.finfo(err.dtype).resolution, err)

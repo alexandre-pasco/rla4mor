@@ -35,7 +35,7 @@ from scipy.stats.qmc import LatinHypercube
 
 # pyMOR gives some basic examples, such as the thermal blocks diffusion problem.
 p = thermal_block_problem((2,2))
-fom, _ = discretize_stationary_cg(p, diameter=1/(2**6))
+fom, _ = discretize_stationary_cg(p, diameter=1/(2**10))
 lhs = fom.operator
 rhs = LincombOperator([fom.rhs], [1.])
 Ru = fom.h1_0_product
@@ -79,7 +79,7 @@ k_online = 500
 
 primal_embedding = SrhtEmbedding(source_dim=lhs.source.dim, range_dim=k_primal, source_id=lhs.source.id, sqrt_product=Qu)
 online_embedding = GaussianEmbedding(source_dim=primal_embedding.range.dim, range_dim=k_online, source_id=primal_embedding.range.id)
-certif_embedding = GaussianEmbedding(source_dim=primal_embedding.range.dim, epsilon=0.5, delta=1e-4, oblivious_dim=1, source_id=primal_embedding.range.id)
+certif_embedding = GaussianEmbedding(source_dim=lhs.range.dim, epsilon=0.5, delta=1e-4, oblivious_dim=1, source_id=lhs.range.id, sqrt_product=primal_embedding)
 
 embeddings = {
     'primal': primal_embedding,
@@ -89,7 +89,7 @@ embeddings = {
 
 primal_sketch = SketchedRom(lhs, rhs, embedding=primal_embedding, product=Ru, full_basis=True)
 online_sketch = SketchedRom(lhs, rhs, embedding=online_embedding)
-certif_sketch = SketchedRom(lhs, rhs, embedding=certif_embedding)
+certif_sketch = SketchedRom(lhs, rhs, embedding=certif_embedding, product=Ru)
 
 
 # =============================================================================
@@ -125,7 +125,7 @@ mu_train = generate_mu_set(1e3)
 
 primal_sketch = SketchedRom(lhs, rhs, embedding=primal_embedding, product=Ru, full_basis=True)
 online_sketch = SketchedRom(lhs, rhs, embedding=online_embedding)
-certif_sketch = SketchedRom(lhs, rhs, embedding=certif_embedding)
+certif_sketch = SketchedRom(lhs, rhs, embedding=certif_embedding, product=Ru)
 
 surrogate = SketchedSurrogate(
     primal_sketch, online_sketch, certif_sketch, 'minres_ls'

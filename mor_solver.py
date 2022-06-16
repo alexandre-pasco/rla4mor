@@ -46,16 +46,24 @@ class SketchedSurrogate(WeakGreedySurrogate):
         self.online_sketch.from_sketch(self.primal_sketch)
     
     
-    def add_vectors(self, U, mus):
+    def add_vectors(self, U, mus, dofs=None, check_mu=True):
         if not hasattr(mus, '__len__'):
             mus = [mus]
-        self.primal_sketch.add_vectors(U, mus)
-        self.certif_sketch.from_sketch(self.primal_sketch)
+        if dofs is None:
+            U_add = U
+        else:
+            U_np = U.to_numpy().T
+            U_dofs_np = 0 * U_np
+            U_dofs_np[dofs, :] = U_np[dofs, :]
+            U_add = U.space.from_numpy(U_dofs_np.T)
+            
+        self.primal_sketch.add_vectors(U_add, mus, check_mu)
+        self.certif_sketch.add_vectors(U_add, mus, check_mu)
     
     
     def orthonormalize_basis(self, offset=0):
         dtype = self.primal_sketch.SUr.to_numpy().dtype
-        Q, R = gram_schmidt(self.primal_sketch.SUr, offset=offset, return_R=True, reiterate=False)
+        Q, R = gram_schmidt(self.primal_sketch.SUr, offset=offset, return_R=True, reiterate=True, rtol=np.finfo(dtype).resolution)
         T = ImplicitInverseOperator(
             csc_matrix(R, dtype=dtype), source_id=self.primal_sketch.SVr.source.id, 
             range_id=self.primal_sketch.lhs.source.id
@@ -90,7 +98,8 @@ class SketchedSurrogate(WeakGreedySurrogate):
     
     
     def weak_greedy(self, r_max, tol, mu_train=None, U_train=None, n_train=None, 
-                    n_per_iter=1, ortho_basis=True, mu_generator=None, **kwargs):
+                    n_per_iter=1, ortho_basis=True, mu_generator=None, separate_dofs=None, 
+                    **kwargs):
         
         if not mu_train is None:
             mu_train = np.array(mu_train)
@@ -110,12 +119,20 @@ class SketchedSurrogate(WeakGreedySurrogate):
                  'certif_error_calc': [], 'times_mu': []}
         
         r = len(self.primal_sketch.SUr)
+        if separate_dofs is None:
+            r_add = n_per_iter
+        else:
+            r_add = n_per_iter * len(separate_dofs)
+        if mu_train is None:
+            gen_mu = True
+        else :
+            gen_mu = False
         
         while tol < max_err and r < r_max:
-            print(f'===== Greedy iteration {r // n_per_iter} adding {n_per_iter} per iter')
-            r = r + n_per_iter
+            print(f'===== Greedy iteration {r // r_add} adding {r_add} per iter')
+            r = r + r_add
             
-            if not(mu_generator is None) : 
+            if gen_mu : 
                 mu_train = mu_generator(n_train, seed=r)
             
             # Generating online sketch
@@ -170,7 +187,13 @@ class SketchedSurrogate(WeakGreedySurrogate):
             
             # Adding the vectors to the sketch
             tic = perf_counter()
-            self.add_vectors(U_add, mu_add)
+            if separate_dofs is None:
+                self.add_vectors(U_add, mu_add)
+            else:
+                check = True
+                for dofs in separate_dofs:
+                    self.add_vectors(U_add, mu_add, dofs=dofs, check_mu=check)
+                    check = check and False # checking only the first time
             t = perf_counter() - tic
             times['adding_vectors'].append(t)
             print(f"  Adding vectors in {t:.3f}")
@@ -178,7 +201,7 @@ class SketchedSurrogate(WeakGreedySurrogate):
             # Orthonormalize the basis
             tic = perf_counter()
             if ortho_basis and not(self.projection in ('sparse_minres')):
-                self.orthonormalize_basis(offset=r-n_per_iter)
+                self.orthonormalize_basis(offset=r-r_add)
             t = perf_counter() - tic
             times['ortho_sketch'].append(t)
             print(f"  Ortho sketch in {t:.3f}")

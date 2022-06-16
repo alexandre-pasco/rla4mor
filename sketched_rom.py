@@ -13,6 +13,7 @@ from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.operators.constructions import IdentityOperator, ConcatenationOperator, \
     InverseOperator, AdjointOperator
 from pymor.algorithms.gram_schmidt import gram_schmidt
+from pymor.parameters.base import Mu
 from scipy.sparse import csc_matrix
 
 from affine_operations import *
@@ -100,8 +101,8 @@ class SketchedRom():
         return lU
     
     
-    def add_vectors(self, U, mus):
-        if not hasattr(mus, '__len__'):
+    def add_vectors(self, U, mus, check_mu=True):
+        if isinstance(mus, Mu):
             mus = [mus]
         if self.SF is None :
             self.SF = self._sketch_rhs()
@@ -110,7 +111,7 @@ class SketchedRom():
         for mu in mus:
             # Check if this value has already been added
             for mu_added in self.mus:
-                assert not(mu.allclose(mu_added))
+                assert not(check_mu) or not(mu.allclose(mu_added))
             self.mus.append(mu)
         SU = self._sketch_u(U)
         SV = self._sketch_sv(U)
@@ -139,11 +140,11 @@ class SketchedRom():
 
         """
         if T is None:
-            dtype = self.primal_sketch.SUr.to_numpy().dtype
-            Q, R = gram_schmidt(self.SUr, offset=offset, return_R=True)
+            dtype = self.SUr.to_numpy().dtype
+            Q, R = gram_schmidt(self.SUr, offset=offset, return_R=True, reiterate=True, rtol=np.finfo(dtype).resolution)
             T = ImplicitInverseOperator(
-                csc_matrix(R, dtype=dtype), source_id=self.primal_sketch.SVr.source.id, 
-                range_id=self.primal_sketch.lhs.source.id
+                csc_matrix(R, dtype=dtype), source_id=self.SVr.source.id, 
+                range_id=self.lhs.source.id
                 )
         else:
             SUr_H = T.apply_adjoint(T.source.from_numpy(self.SUr.to_numpy().conj().T))
@@ -257,7 +258,7 @@ class SketchedRom():
             residuals = self.embedding.range.empty()
             errors = np.ones(len(mus))
         else:
-            errors, residuals = self._residual_norms(coefs, mus)
+            errors, residuals = self._residual_norms(coefs, mus, return_residuals)
         return errors, residuals
 
 

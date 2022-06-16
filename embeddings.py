@@ -184,7 +184,7 @@ class GaussianEmbedding(RandomEmbedding):
     
     def update(self):
         k = self.range.dim
-        n = self.source.dim
+        n = self.sqrt_product.range.dim
         gauss = np.random.RandomState(self._seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
         self._random_matrix = gauss
     
