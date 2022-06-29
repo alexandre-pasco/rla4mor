@@ -35,7 +35,7 @@ from scipy.stats.qmc import LatinHypercube
 
 # pyMOR gives some basic examples, such as the thermal blocks diffusion problem.
 p = thermal_block_problem((2,2))
-fom, _ = discretize_stationary_cg(p, diameter=1/(2**10))
+fom, _ = discretize_stationary_cg(p, diameter=1/(2**6))
 lhs = fom.operator
 rhs = LincombOperator([fom.rhs], [1.])
 Ru = fom.h1_0_product

@@ -275,15 +275,15 @@ class SketchedPreconditioner:
         for i in range(len(mus)):
             ls_lhs = self._assemble_ls_matrices(mus[i], which, alpha)
             if solver == 'minres_ls':
-                coef, err, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs, rcond=None)
+                coef, _, _, _  = np.linalg.lstsq(ls_lhs, ls_rhs, rcond=None)
             elif solver in ('omp', 'omp_spams', 'omp_sklearn', 'stepwise'):
                 coef, _ = sparse_minres_solver(ls_lhs, ls_rhs, **kwargs)
                 coef = coef.reshape(-1,1)
-                residual = np.dot(ls_lhs, coef) - ls_rhs
-                err = np.linalg.norm(residual)**2
+            residual = np.dot(ls_lhs, coef) - ls_rhs
+            err = np.linalg.norm(residual)
             err = max(np.finfo(err.dtype).resolution, err)
+            errors[i] = err
             coefs[i] = coef[:,0]
-            errors[i] = np.sqrt(err)
         print(f"Fitting on param set in {perf_counter() - tic:.3f}s")
         return coefs, errors
     
@@ -436,22 +436,45 @@ class SketchedPreconditioner:
     
     
     def _sketch_u_ur(self, op):
+        # theta = self.theta
+        # sigma_h = self.sigma_u_ur.as_source_array().conj()
+        # omega = self.omega_u_ur
+        # gamma = self.gamma_u_ur
+        # Ru = self.product
+        # Q = self.sqrt_product
+        # SUr = self.SUr
+        
+        # u = Q.apply_adjoint(sigma_h)
+        # u = Ru.apply_inverse(u)
+        # u = op.apply(u)
+        # u = theta.apply(u)
+        # u = SUr.inner(u)
+        # u = omega.apply(omega.source.from_numpy(u.T)).to_numpy().T
+        # u_vec = np.concatenate([u[:,j] for j in range(u.shape[1])])
+        # v = gamma.apply(gamma.source.from_numpy(u_vec))
+        
         theta = self.theta
-        sigma_h = self.sigma_u_ur.as_source_array().conj()
-        omega = self.omega_u_ur
+        omega_h = self.omega_u_ur.as_source_array().conj()
+        sigma = self.sigma_u_ur
         gamma = self.gamma_u_ur
         Ru = self.product
         Q = self.sqrt_product
         SUr = self.SUr
         
-        u = Q.apply_adjoint(sigma_h)
-        u = Ru.apply_inverse(u)
-        u = op.apply(u)
-        u = theta.apply(u)
-        u = SUr.inner(u)
-        u = omega.apply(omega.source.from_numpy(u.T)).to_numpy().T
-        u_vec = np.concatenate([u[:,j] for j in range(u.shape[1])])
+        u = sigma.apply(
+            Q.apply(
+                Ru.apply_inverse(
+                    op.apply_adjoint(
+                        theta.apply_adjoint(
+                            SUr
+                            )
+                        )
+                    )
+                )
+            ).to_numpy().T.conj()
+        u_vec = np.matrix.flatten(u)
         v = gamma.apply(gamma.source.from_numpy(u_vec))
+    
         return v
     
     

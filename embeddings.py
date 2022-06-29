@@ -426,6 +426,12 @@ class SrhtEmbedding(RandomEmbedding):
         return self.range.from_numpy(self.srht(QU.to_numpy()))
     
     
+    def apply_adjoint(self, U, mu=None):
+        assert U in self.range
+        mat = NumpyMatrixOperator(self.get_matrix().T, source_id=self.range.id, range_id=self.source.id)
+        return mat.apply(U)
+    
+    
     def update(self):
         pass
     
@@ -462,32 +468,7 @@ class SrhtEmbedding(RandomEmbedding):
         DHP = np.sqrt(1/k) * P[:,:n] * rademacher
         return DHP
         
-    
-    
-    # def _get_hadamard_row(self, n):
-    #     """
-    #     Compute the n-th row of the truncated Hadamard matrix.
 
-    #     Parameters
-    #     ----------
-    #     n : int
-    #         The row to compute
-
-    #     Returns
-    #     -------
-    #     row : np.array
-    #         array of size (self.source.dim,)
-
-    #     """
-    #     row = np.zeros(self.source.dim)
-    #     for i in range(self.source.dim):
-    #         b = binary_inner(n, i)
-    #         if b%2 == 0:
-    #             row[i] = 1
-    #         else : 
-    #             row[i] = -1
-    #     return row
-        
         
 class IdentityEmbedding(RandomEmbedding):
 
@@ -517,6 +498,8 @@ class IdentityEmbedding(RandomEmbedding):
     def apply(self, U, mu=None):
         return self.range.from_numpy(self.sqrt_product.apply(U).to_numpy())
     
+    def apply_adjoint(self, U, mu=None):
+        return self.source.from_numpy(self.sqrt_product.apply_adjoint(U).to_numpy())
     
     def update(self):
         pass

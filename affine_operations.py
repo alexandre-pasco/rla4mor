@@ -340,8 +340,9 @@ def lincomb_ortho_range(A, U, product, sqrt_product):
         W.append(w)
     # Q, R = gram_schmidt(W, return_R=True, product=product)
     QuW = sqrt_product.apply(W)
-    Q_bis, R = np.linalg.qr(QuW.to_numpy().T)
-    Q = product.apply_inverse(sqrt_product.apply_adjoint(A.source.from_numpy(Q_bis.T)))
+    # Q_bis, R = np.linalg.qr(QuW.to_numpy().T)
+    Q_bis, R = gram_schmidt(QuW, return_R=True)
+    Q = product.apply_inverse(sqrt_product.apply_adjoint(Q_bis))
     return Q, R
 
 

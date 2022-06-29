@@ -110,7 +110,7 @@ class ImplicitInverseOperator(Operator):
         result = slu.solve(U.to_numpy().T)
         return self.source.from_numpy(result.T)
     
-    def apply_adjoint(self, U):
+    def apply_adjoint(self, U, mu=None):
         assert U in self.range
         slu = self.factorization
         result = slu.solve(U.to_numpy().T, trans='H')
