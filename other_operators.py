@@ -14,7 +14,7 @@ from pymor.operators.numpy import NumpyMatrixOperator
 
 import ffht
 from sksparse.cholmod import cholesky
-from scipy.sparse.linalg import splu, LinearOperator
+import scipy.sparse.linalg  as sla
 
 
 class CholeskyOperator(Operator):
@@ -101,7 +101,7 @@ class ImplicitInverseOperator(Operator):
         self.source = NumpyVectorSpace(matrix.shape[1], source_id)
         self.range = NumpyVectorSpace(matrix.shape[0], range_id)
         if factorization is None:
-            self.factorization = splu(matrix, permc_spec=permc_spec)
+            self.factorization = sla.splu(matrix, permc_spec=permc_spec)
 
 
     def apply(self, U, mu=None):
@@ -128,21 +128,45 @@ class ImplicitInverseOperator(Operator):
 
         
         
-class ScipyLinearOperator(LinearOperator):
+class ScipyLinearOperator(sla.LinearOperator):
     """
     Class used to wrap a pymor Operator to a scipy LinearOperator, which can
     be used as a preconditioner for iterative solving method like GMRES.
     """
-    def __init__(self, operator):
+    def __init__(self, operator, dtype=None):
         self.operator = operator
         self.shape = (operator.range.dim, operator.source.dim)
+        self.dtype = dtype
     
     def _matvec(self, x):
+        if len(x.shape) == 2:
+            x = x.reshape(-1)
         u = self.operator.source.from_numpy(x)
         return self.operator.apply(u).to_numpy().reshape(-1)
     
     def _rmatvec(self, x):
+        if len(x.shape) == 2:
+            x = x.reshape(-1)
         u = self.operator.range.from_numpy(x)
         return self.operator.apply_adjoint(u).to_numpy().reshape(-1)
     
+
+
+def estimate_cond(A, Ainv=None, tol=0, verbose=False):
+    if verbose:
+        print("==Cond number estimation==")
+        print("estimation highest sv")
+    _, smax, _ = sla.svds(A, k=1, tol=tol)
     
+    if Ainv is None:
+        if verbose:
+            print("factorizing A")
+        P = ImplicitInverseOperator(A)
+        Ainv = ScipyLinearOperator(P)
+
+    if verbose:
+        print("estimation lowest sv")
+    _, inv_smin, _ = sla.svds(Ainv, k=1, tol=tol)
+    smin = 1 / inv_smin
+    cond = smax / smin
+    return cond
