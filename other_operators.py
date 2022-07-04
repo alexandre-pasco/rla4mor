@@ -152,7 +152,7 @@ class ScipyLinearOperator(sla.LinearOperator):
     
 
 
-def estimate_cond(A, Ainv=None, tol=0, verbose=False):
+def cond_estimate(A, Ainv=None, tol=0, verbose=False):
     if verbose:
         print("==Cond number estimation==")
         print("estimation highest sv")

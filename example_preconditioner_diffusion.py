@@ -190,8 +190,10 @@ kwargs = {
     'gamma_ur_ur':SrhtEmbedding(source_dim=len(ur)*len(ur), range_dim=k_hs)
     }
 
+residual_embedding = IdentityEmbedding(source_dim=lhs.source.dim, source_id=lhs.source.id, sqrt_product=Qu)
+
 sp = SketchedPreconditioner(
-    lhs, rhs, ur, primal_embedding, product=Ru, sqrt_product=Qu, **kwargs
+    lhs, rhs, ur, primal_embedding, residual_embedding, product=Ru, sqrt_product=Qu, **kwargs
     )
 
 
@@ -262,6 +264,7 @@ err_p2_q = np.array(err_p2_q)
 err_p2_test = np.array(err_p2_test)
 q_quasi = np.quantile(err_p2_test / err_proj, q, axis=1)
 
+
 # =============================================================================
 # plotting
 # =============================================================================
@@ -307,6 +310,25 @@ ax.set_xscale('log')
 ax.set_title('Quasi optimality on test set : observed vs upper bound')
 
 
+# =============================================================================
+# preconditioned residual norms
+# =============================================================================
+
+
+coef_gal, coef_p = sp.solve_rom(mu_test, which=which_fit, alpha=alpha)
+unorms = (ur.lincomb(coef_gal) - u_test).norm(Ru)
+rnorms = sp._evaluate_residual_norms(mu_test, coef_gal, coef_p)
+
+
+fig, ax = plt.subplots( figsize=(6,6))
+ax.scatter(unorms, rnorms, s=1)
+ax.plot([unorms.min(), unorms.max()], [unorms.min(), unorms.max()], linestyle='--', c='r')
+ax.set_xlabel(r'U norm')
+ax.set_ylabel('precond residual norm')
+ax.set_xscale('log')
+ax.set_yscale('log')
+ax.set_title('Preconditioned residual norms vs true error norms')
+plt.show()
 
 
 # =============================================================================

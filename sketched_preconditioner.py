@@ -42,13 +42,17 @@ class SketchedPreconditioner:
     sqrt_product = Operator
     
     sigma_{x}_{y} : RandomEmbedding
-    
-    
+        The l2->l2 embeddings used for the sketched Frobenius 
+        error indicators.
+    residual_embedding : RandomEmbedding
+        The U->l2 embedding used to estimate the preconditioned residual norm.
+        
     """
 
-    def __init__(self, lhs, rhs, Ur, theta, product=None, sqrt_product=None, sigma_u_u=None,
+    def __init__(self, lhs, rhs, Ur, theta, residual_embedding, product=None, 
+                 sqrt_product=None, sigma_u_u=None,
                  omega_u_u=None, gamma_u_u=None, sigma_u_ur=None, omega_u_ur=None,
-                 gamma_u_ur=None, sigma_ur_ur=None, omega_ur_ur=None, gamma_ur_ur=None
+                 gamma_u_ur=None, sigma_ur_ur=None, omega_ur_ur=None, gamma_ur_ur=None,
                  ):
         
         for key, val in locals().items():
@@ -65,10 +69,12 @@ class SketchedPreconditioner:
         self.pa_u_ur = []
         self.pa_ur_ur = []
         self.mus = []
+        self.SPVr_lst = []
+        self.SPF_lst = [] 
         
-        # Compute the different range orthonormalizers for A
+        # Compute the range orthonormalizers for A
         dtype = Ur.to_numpy().dtype
-        
+        self.dtype = dtype
         ####
         
         # for galerkin
@@ -110,7 +116,7 @@ class SketchedPreconditioner:
     def add_preconditioner(self, P, mu=None):
         self.mus.append(mu)
         
-        # for galerkin
+        # for galerkin lhs
         tic = perf_counter()
         projected_PhUr= self._project_PhUr(P)
         print(f'range(Ar)h @ Ph @ Ur in {perf_counter()-tic:.3f} s')
@@ -131,6 +137,7 @@ class SketchedPreconditioner:
         self.pa_ur_ur.append(self._sketch_pa_ur_ur(P))
         print(f'HS(Ur->Ur\') sketched in {perf_counter()-tic:.3f} s')
         
+        # for galerkin rhs
         rhs_operators = []
         for bi in self.rhs.operators:
             SF = self.theta.apply(P.apply(bi.as_range_array()))
@@ -139,6 +146,15 @@ class SketchedPreconditioner:
         galerkin_rhs = LincombOperator(rhs_operators, self.rhs.coefficients)
         self.galerkin_rhs_lst.append(galerkin_rhs)
 
+        # for preconditioned residual
+        tic = perf_counter()
+        self.SPVr_lst.append(self._sketch_spvr(P))
+        print(f'PAUr sketched in {perf_counter()-tic:.3f} s')
+        
+        tic = perf_counter()
+        self.SPF_lst.append(self._sketch_spf(P))
+        print(f'PF sketched in {perf_counter()-tic:.3f} s')
+        
 
     def add_preconditioner_range_based(self, P, mu=None):
         self.mus.append(mu)
@@ -234,7 +250,47 @@ class SketchedPreconditioner:
         galerkin_lhs = np.dot(W, V)
         
         return galerkin_lhs, galerkin_rhs
+      
+
+    def solve_rom(self, mus, which=1, alpha=0, solver='minres_ls', **kwargs):
+        coef_p, error_p = self.fit(mus, which, alpha, solver, **kwargs)
+        coef_gal = np.zeros((len(mus), len(self.Ur)), dtype=self.dtype)
         
+        for i in range(len(mus)):
+            mu = mus[i]
+            c = coef_p[i]
+            Ar, br = self._assemble_galerkin_system(mu, c)
+            ar = np.linalg.solve(Ar, br).reshape(-1)
+            coef_gal[i] = ar
+        
+        return coef_gal, coef_p
+    
+    
+    def _evaluate_residual_norms(self, mus, coef_gal, coef_p):
+        r = len(self.Ur)
+        p = len(self.projected_PhUr_lst)
+        k = self.residual_embedding.range.dim
+        
+        norms = np.zeros(len(mus))
+        
+        
+        for i in range(len(mus)):
+            mu = mus[i]
+            c_gal = coef_gal[i]
+            c_p = coef_p[i]
+            SPV = np.zeros(k, dtype=self.dtype)
+            SPF = np.zeros(k, dtype=self.dtype)
+            for j in range(p):
+                spjv = self.SPVr_lst[j].assemble(mu)
+                aux = spjv.apply(spjv.source.from_numpy(c_gal)).to_numpy().reshape(-1)
+                SPV = SPV + c_p[j] * aux
+                
+                spjf = self.SPF_lst[j].as_range_array(mu).to_numpy().reshape(-1)
+                SPF = SPF + c_p[j] * spjf
+            residual = SPV - SPF
+            norms[i] = np.linalg.norm(residual)
+        
+        return norms
 
     def fit(self, mus, which=1, alpha=0, solver='minres_ls', **kwargs):
         """
@@ -522,6 +578,18 @@ class SketchedPreconditioner:
             result.append(v)
         return result            
 
+    def _sketch_spvr(self, P):
+        S = self.residual_embedding
+        PVr = op_compose_lincomb(P, apply_affine(self.lhs, self.Ur))
+        PF = op_compose_lincomb(P, self.rhs)
+        SPVr = op_compose_lincomb(S, PVr)
+        return SPVr
+        
+    def _sketch_spf(self, P):
+        S = self.residual_embedding
+        PF = op_compose_lincomb(P, self.rhs)
+        SPF = op_compose_lincomb(S, PF)
+        return SPF
 
 
 class SketchedPreconditionerSurrogate(WeakGreedySurrogate):
