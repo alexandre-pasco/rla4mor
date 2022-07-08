@@ -50,7 +50,7 @@ class SketchedPreconditioner:
     """
 
     def __init__(self, lhs, rhs, Ur, theta, residual_embedding, product=None, 
-                 sqrt_product=None, sigma_u_u=None,
+                 sqrt_product=None, range_based=True, sigma_u_u=None,
                  omega_u_u=None, gamma_u_u=None, sigma_u_ur=None, omega_u_ur=None,
                  gamma_u_ur=None, sigma_ur_ur=None, omega_ur_ur=None, gamma_ur_ur=None,
                  ):
@@ -63,7 +63,7 @@ class SketchedPreconditioner:
             self.sqrt_product = IdentityOperator(lhs.source)
         
         self.SUr = theta.apply(Ur)
-        self.galerkin_lhs_lst = [] # galerkin lhs
+        self.galerkin_lhs_lst = [] # galerkin lhs when not range based
         self.galerkin_rhs_lst = [] # galerkin rhs
         self.pa_u_u = []
         self.pa_u_ur = []
@@ -72,55 +72,55 @@ class SketchedPreconditioner:
         self.SPVr_lst = []
         self.SPF_lst = [] 
         
+        self.range_AUr = None
+        self.projected_AUr = None
+        self.projected_PhUr_lst = []
+        
         # Compute the range orthonormalizers for A
         dtype = Ur.to_numpy().dtype
         self.dtype = dtype
         ####
         
         # for galerkin
-        Q_AUr, _ = lincomb_ortho_range(lhs, Ur, self.product, self.sqrt_product)
-        self.range_AUr = Q_AUr
-        self.projected_AUr = apply2_affine(lhs, Q_AUr, Ur)
-        self.projected_PhUr_lst = []
+        if range_based :
+            Q_AUr, _ = lincomb_ortho_range(lhs, Ur, self.product, self.sqrt_product)
+            self.range_AUr = Q_AUr
+            self.projected_AUr = apply2_affine(lhs, Q_AUr, Ur)
+            
         
         # for now, we compute the indicators based on the naive affine PiAj
-        range_based_indicators = False
-        if range_based_indicators:
-            # for delta U->U'
-            source = self.product.apply_inverse(
-                self.sqrt_product.apply_adjoint(sigma_u_u.as_source_array().conj())
-                )
-            Q, R = lincomb_ortho_range(lhs, source, self.product)
-            # self.T_u_u = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
-            self.range_AS_u_u = Q
-            self.projected_A_u_u = apply2_affine(lhs, Q, source)
-            self.projected_Ph_u_u_lst = []
+        # range_based_indicators = False
+        # if range_based_indicators:
+        #     # for delta U->U'
+        #     source = self.product.apply_inverse(
+        #         self.sqrt_product.apply_adjoint(sigma_u_u.as_source_array().conj())
+        #         )
+        #     Q, R = lincomb_ortho_range(lhs, source, self.product)
+        #     # self.T_u_u = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
+        #     self.range_AS_u_u = Q
+        #     self.projected_A_u_u = apply2_affine(lhs, Q, source)
+        #     self.projected_Ph_u_u_lst = []
             
-            # for delta U->Ur'
-            source = self.product.apply_inverse(
-                self.sqrt_product.apply_adjoint(sigma_u_ur.as_source_array().conj())
-                )
-            Q, R = lincomb_ortho_range(lhs, source, self.product)
-            # self.T_u_ur = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
-            self.range_AS_u_ur = Q
-            self.projected_A_u_ur = apply2_affine(lhs, Q, source)
-            self.projected_Ph_u_ur_lst = []
+        #     # for delta U->Ur'
+        #     source = self.product.apply_inverse(
+        #         self.sqrt_product.apply_adjoint(sigma_u_ur.as_source_array().conj())
+        #         )
+        #     Q, R = lincomb_ortho_range(lhs, source, self.product)
+        #     # self.T_u_ur = ImplicitInverseOperator(csc_matrix(R, dtype=dtype))
+        #     self.range_AS_u_ur = Q
+        #     self.projected_A_u_ur = apply2_affine(lhs, Q, source)
+        #     self.projected_Ph_u_ur_lst = []
             
-            # for delta Ur->Ur
-            source = lhs.source.from_numpy((Ur.to_numpy().T @ sigma_ur_ur.get_matrix()).T)
-            self.range_AS_ur_ur = Q_AUr
-            self.projected_A_ur_ur = apply2_affine(lhs, Q_AUr, source)
-            self.projected_Ph_ur_ur_lst = []
+        #     # for delta Ur->Ur
+        #     source = lhs.source.from_numpy((Ur.to_numpy().T @ sigma_ur_ur.get_matrix()).T)
+        #     self.range_AS_ur_ur = Q_AUr
+        #     self.projected_A_ur_ur = apply2_affine(lhs, Q_AUr, source)
+        #     self.projected_Ph_ur_ur_lst = []
 
 
     def add_preconditioner(self, P, mu=None):
         self.mus.append(mu)
-        
-        # for galerkin lhs
-        tic = perf_counter()
-        projected_PhUr= self._project_PhUr(P)
-        print(f'range(Ar)h @ Ph @ Ur in {perf_counter()-tic:.3f} s')
-        self.projected_PhUr_lst.append(projected_PhUr)
+
         
         # for delta U->U'
         tic = perf_counter()
@@ -137,6 +137,25 @@ class SketchedPreconditioner:
         self.pa_ur_ur.append(self._sketch_pa_ur_ur(P))
         print(f'HS(Ur->Ur\') sketched in {perf_counter()-tic:.3f} s')
         
+        
+        # for galerkin lhs
+        if self.range_based:
+            tic = perf_counter()
+            projected_PhUr= self._project_PhUr(P)
+            print(f'range(Ar)h @ Ph @ Ur in {perf_counter()-tic:.3f} s')
+            self.projected_PhUr_lst.append(projected_PhUr)
+        else:
+            lhs_operators = []
+            tic = perf_counter()
+            for Ai in self.lhs.operators:
+                PAiUr = P.apply(Ai.apply(self.Ur))
+                mat = self.Ur.inner(PAiUr, product=self.product)
+                lhs_operators.append(NumpyMatrixOperator(mat, range_id=self.Ur.space.id))
+            galerkin_lhs = LincombOperator(lhs_operators, self.lhs.coefficients)
+            print(f'Urh @ Ru @ P @ A @ Ur in {perf_counter()-tic:.3f} s')
+            self.galerkin_lhs_lst.append(galerkin_lhs)
+            
+        
         # for galerkin rhs
         rhs_operators = []
         for bi in self.rhs.operators:
@@ -145,6 +164,9 @@ class SketchedPreconditioner:
             rhs_operators.append(NumpyMatrixOperator(mat, range_id=self.Ur.space.id))
         galerkin_rhs = LincombOperator(rhs_operators, self.rhs.coefficients)
         self.galerkin_rhs_lst.append(galerkin_rhs)
+
+
+
 
         # for preconditioned residual
         tic = perf_counter()
@@ -156,40 +178,40 @@ class SketchedPreconditioner:
         print(f'PF sketched in {perf_counter()-tic:.3f} s')
         
 
-    def add_preconditioner_range_based(self, P, mu=None):
-        self.mus.append(mu)
+    # def add_preconditioner_range_based(self, P, mu=None):
+    #     self.mus.append(mu)
         
-        # for galerkin
-        tic = perf_counter()
-        projected_PhUr= self._project_PhUr(P)
-        print(f'range(Ar)h @ Ph @ Ur in {perf_counter()-tic:.3f} s')
-        self.projected_PhUr_lst.append(projected_PhUr)
+    #     # for galerkin
+    #     tic = perf_counter()
+    #     projected_PhUr= self._project_PhUr(P)
+    #     print(f'range(Ar)h @ Ph @ Ur in {perf_counter()-tic:.3f} s')
+    #     self.projected_PhUr_lst.append(projected_PhUr)
         
-        # for delta U->U'
-        tic = perf_counter()
-        projected_Ph_u_u = self._project_Ph_u_u(P)
-        print(f'range(A @ Sigmah)h @ Ph @ Omega in {perf_counter()-tic:.3f} s')
-        self.projected_Ph_u_u_lst.append(projected_Ph_u_u)
+    #     # for delta U->U'
+    #     tic = perf_counter()
+    #     projected_Ph_u_u = self._project_Ph_u_u(P)
+    #     print(f'range(A @ Sigmah)h @ Ph @ Omega in {perf_counter()-tic:.3f} s')
+    #     self.projected_Ph_u_u_lst.append(projected_Ph_u_u)
         
-        # for delta U->Ur'
-        tic = perf_counter()
-        projected_Ph_u_ur = self._project_Ph_u_ur(P)
-        print(f'range(A @ Sigmah)h @ Ph @ Ur @ Omega in {perf_counter()-tic:.3f} s')
-        self.projected_Ph_u_ur_lst.append(projected_Ph_u_ur)
+    #     # for delta U->Ur'
+    #     tic = perf_counter()
+    #     projected_Ph_u_ur = self._project_Ph_u_ur(P)
+    #     print(f'range(A @ Sigmah)h @ Ph @ Ur @ Omega in {perf_counter()-tic:.3f} s')
+    #     self.projected_Ph_u_ur_lst.append(projected_Ph_u_ur)
         
-        # for delta Ur->Ur'
-        tic = perf_counter()
-        projected_Ph_ur_ur = self._project_Ph_ur_ur(P)
-        print(f'range(A @ Ur @ Sigmah)h @ Ph @ Ur @ Omega in {perf_counter()-tic:.3f} s')
-        self.projected_Ph_ur_ur_lst.append(projected_Ph_ur_ur)
+    #     # for delta Ur->Ur'
+    #     tic = perf_counter()
+    #     projected_Ph_ur_ur = self._project_Ph_ur_ur(P)
+    #     print(f'range(A @ Ur @ Sigmah)h @ Ph @ Ur @ Omega in {perf_counter()-tic:.3f} s')
+    #     self.projected_Ph_ur_ur_lst.append(projected_Ph_ur_ur)
         
-        rhs_operators = []
-        for bi in self.rhs.operators:
-            SF = self.theta.apply(P.apply(bi.as_range_array()))
-            mat = self.SUr.inner(SF)
-            rhs_operators.append(NumpyMatrixOperator(mat, range_id=self.Ur.space.id))
-        galerkin_rhs = LincombOperator(rhs_operators, self.rhs.coefficients)
-        self.galerkin_rhs_lst.append(galerkin_rhs)
+    #     rhs_operators = []
+    #     for bi in self.rhs.operators:
+    #         SF = self.theta.apply(P.apply(bi.as_range_array()))
+    #         mat = self.SUr.inner(SF)
+    #         rhs_operators.append(NumpyMatrixOperator(mat, range_id=self.Ur.space.id))
+    #     galerkin_rhs = LincombOperator(rhs_operators, self.rhs.coefficients)
+    #     self.galerkin_rhs_lst.append(galerkin_rhs)
         
     
     def _project_PhUr(self, P):
@@ -230,49 +252,56 @@ class SketchedPreconditioner:
         omega = self.omega_ur_ur.get_matrix()
         result = omega @ mat
         return result
-
+    
 
     def _assemble_galerkin_system(self, mu, coef):
         
         r = len(self.Ur)
-        p = len(self.projected_PhUr_lst)
+        p = len(self.mus)
         
-        # first compute the range of AUr
-        V = self.projected_AUr.assemble(mu).matrix
+        if self.range_based:
+            # first compute the range of AUr
+            V = self.projected_AUr.assemble(mu).matrix
+            # Then assemble the projected range of PhUr and the galerkin rhs
+            W = np.zeros((r, V.shape[0]), dtype=V.dtype)
+            galerkin_rhs = np.zeros((r,1), dtype=self.theta.dtype)
+            for i in range(p):
+                W = W + coef[i] * self.projected_PhUr_lst[i]
+                galerkin_rhs += coef[i] * self.galerkin_rhs_lst[i].assemble(mu).matrix
+            galerkin_lhs = np.dot(W, V)
         
-        # Then assemble the projected range of PhUr and the galerkin rhs
-        W = np.zeros((r, V.shape[0]), dtype=V.dtype)
-        galerkin_rhs = np.zeros((r,1), dtype=self.theta.dtype)
-        for i in range(p):
-            W = W + coef[i] * self.projected_PhUr_lst[i]
-            galerkin_rhs += coef[i] * self.galerkin_rhs_lst[i].assemble(mu).matrix
-        
-        galerkin_lhs = np.dot(W, V)
-        
+        else:
+            galerkin_lhs = np.zeros((r,r), dtype=self.theta.dtype)
+            galerkin_rhs = np.zeros((r,1), dtype=self.theta.dtype)
+            for i in range(p):
+                galerkin_lhs += coef[i] * self.galerkin_lhs_lst[i].assemble(mu).matrix
+                galerkin_rhs += coef[i] * self.galerkin_rhs_lst[i].assemble(mu).matrix
+
         return galerkin_lhs, galerkin_rhs
       
 
     def solve_rom(self, mus, which=1, alpha=0, solver='minres_ls', **kwargs):
+        print("***RB preconditioned galerkin")
         coef_p, error_p = self.fit(mus, which, alpha, solver, **kwargs)
+        tic = perf_counter()
         coef_gal = np.zeros((len(mus), len(self.Ur)), dtype=self.dtype)
-        
         for i in range(len(mus)):
             mu = mus[i]
             c = coef_p[i]
             Ar, br = self._assemble_galerkin_system(mu, c)
             ar = np.linalg.solve(Ar, br).reshape(-1)
             coef_gal[i] = ar
-        
+        print(f"Preconditioned galerkin proj in {perf_counter()-tic:.3f}s")
         return coef_gal, coef_p
     
     
     def _evaluate_residual_norms(self, mus, coef_gal, coef_p):
-        r = len(self.Ur)
-        p = len(self.projected_PhUr_lst)
+        print("***Preconditioned residual norm")
+        p = len(self.mus)
         k = self.residual_embedding.range.dim
         
         norms = np.zeros(len(mus))
-        
+        tic = perf_counter()
         
         for i in range(len(mus)):
             mu = mus[i]
@@ -290,6 +319,7 @@ class SketchedPreconditioner:
             residual = SPV - SPF
             norms[i] = np.linalg.norm(residual)
         
+        print(f"Preconditioned residual norms in {perf_counter()-tic:.3f}s")
         return norms
 
     def fit(self, mus, which=1, alpha=0, solver='minres_ls', **kwargs):
