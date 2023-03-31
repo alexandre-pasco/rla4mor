@@ -23,19 +23,11 @@ class RandomEmbedding(Operator):
     
     Attibutes
     ---------
-    epsilon : float
-        The relative error of the approximated squared norm of the sketched 
-        vectors.
-    delta : float
-        The probability of failiure.
-    oblivious_dim : int
-        The dimension for which any subspace is embedded with probability
-        delta and relative error epsilon
-    dtype : data-type [to remove ?]
-        The data type, float' or complex.
     sqrt_product : Operator
         An operator Q such as Q^H @ Q = R, with R is a positive definite,
         self adjoint operator, enconding the inner product.
+    options : dict
+        Dictionary containing options for the embedding.
     _random_matrix : np.ndarray
         The l2 -> l2 embedding matrix
     _matrix : np.ndarray
