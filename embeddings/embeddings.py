@@ -10,7 +10,7 @@ Created on Fri Mar 31 14:35:17 2023
 import numpy as np
 from pymor.tools.frozendict import FrozenDict
 from pymor.core.base import abstractmethod
-from pymor.operators.constructions import Operator, IdentityOperator, ConcatenationOperator
+from pymor.operators.constructions import Operator, IdentityOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
