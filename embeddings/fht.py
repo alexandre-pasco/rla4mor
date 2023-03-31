@@ -105,6 +105,6 @@ def fht(a) -> None:
     assert d%1 == 0
     assert a.ndim <= 2
     if a.ndim == 1 or a.shape[1] == 1:
-        _fht_1d(a,d)
+        _fht_1d(a)
     elif a.ndim == 2:
         _fht_2d(a)

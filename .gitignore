@@ -1,2 +1,5 @@
 # Ignore the spyder project folder
 .spyproject
+
+# Ignore the cach
+__pycach__

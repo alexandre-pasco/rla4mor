@@ -8,6 +8,7 @@ Created on Fri Mar 31 14:35:17 2023
 
 
 import numpy as np
+from pymor.tools.frozendict import FrozenDict
 from pymor.core.base import abstractmethod
 from pymor.operators.constructions import Operator, IdentityOperator, ConcatenationOperator
 from pymor.operators.numpy import NumpyMatrixOperator
@@ -26,14 +27,13 @@ class RandomEmbedding(Operator):
     sqrt_product : Operator
         An operator Q such as Q^H @ Q = R, with R is a positive definite,
         self adjoint operator, enconding the inner product.
-    options : dict
-        Dictionary containing options for the embedding.
+    options : FrozenDict
+        Immutable dictionary containing options for the embedding. The possible 
+        keys are 'range_dim', 'epsilon', 'delta', 'oblivious_dim' and 'seed'. 
     _random_matrix : np.ndarray
         The l2 -> l2 embedding matrix
     _matrix : np.ndarray
         The U -> l2 embedding matrix, i.e. sqrt_product @ _random_matrix.
-    _seed : int
-        If implemented, the seed for the random operator.
     """
     
 
@@ -45,18 +45,11 @@ class RandomEmbedding(Operator):
 
         Returns
         -------
-        embedding_dim : int
+        range_dim : int
 
         """
         pass
-    
-    @abstractmethod
-    def update(self):
-        """
-        Update the embedding according to self.options['seed'].
 
-        """
-        pass
     
     
     @abstractmethod
@@ -102,27 +95,7 @@ class RandomEmbedding(Operator):
             self._matrix = self._compute_random_matrix()
         return self._matrix
     
-    
-    def set_seed(self, seed=None):
-        """
-        Set the attribute self._seed. This attribute is the random state of 
-        the embedding.
-
-        Parameters
-        ----------
-        seed : int
-            The seed used to perform operations with the random embedding.
-            If None, the seed used is obtained randomly by
-            numpy.random.randint(0,2**32-1).
-            
-        """
-        if seed is None:
-            new_seed = np.random.randint(0, high=2**32-1)
-        else :
-            new_seed = seed
-        self.options['seed'] = new_seed
-        self.update()
-    
+       
     
     def as_range_array(self):
         result = self.range.from_numpy(self.get_matrix().T)
@@ -140,7 +113,10 @@ class SrhtEmbedding(RandomEmbedding):
     def __init__(self, source=None, sqrt_product=None, options=None):
     
         assert not(source is None) or not(sqrt_product is None)
+        if options.get('seed') is None:
+            options['seed'] = np.random.randint(0, high=2**32-1)
         self.__auto_init(locals())
+        self.options = FrozenDict(options)
         if sqrt_product is None:
             self.sqrt_product = IdentityOperator(source)
         self.source = self.sqrt_product.source
@@ -200,7 +176,7 @@ class SrhtEmbedding(RandomEmbedding):
         # Applying the inplace Fast Hadamard Transform
         fht(Dx)
         # sampling and rescaling
-        PHDx = np.sqrt(1/k) * Dx[sampling, :]
+        PHDx = np.sqrt(n/k) * Dx[sampling, :]
         return PHDx
         
     def apply(self, U, mu=None):
@@ -216,9 +192,6 @@ class SrhtEmbedding(RandomEmbedding):
         mat = NumpyMatrixOperator(self.get_matrix().T, source_id=self.range.id, range_id=self.source.id)
         return mat.apply(U)
     
-    
-    def update(self):
-        pass
     
     
     def _compute_matrix(self):
@@ -253,5 +226,62 @@ class SrhtEmbedding(RandomEmbedding):
 
 
 
+class GaussianEmbedding(RandomEmbedding):
+    
+    def __init__(self, source=None, sqrt_product=None, options=None):
+    
+        assert not(source is None) or not(sqrt_product is None)
+        self.__auto_init(locals())
+        self.options = FrozenDict(options)
+        if sqrt_product is None:
+            self.sqrt_product = IdentityOperator(source)
+        self.source = self.sqrt_product.source
+        self.range = NumpyVectorSpace(self.compute_dim())
+        self._matrix = None
+        self._random_matrix = self._compute_random_matrix()
+        self.linear = True
+        
+
+    def compute_dim(self):
+        opt = self.options
+        range_dim = opt.get('range_dim')
+        eps = opt.get('epsilon')
+        delta = opt.get('delta')
+        d = opt.get('oblivious_dim')
+        assert range_dim or all([eps, delta, d])
+        if range_dim is None:
+            a = 1
+            if opt.get('dtype') == complex:
+                a = 2
+            range_dim = 7.87 * (1/eps**2) * (a * 6.9 * d + np.log(1/delta))
+            range_dim = int(np.ceil(range_dim))
+        return range_dim
+    
+    
+    def apply(self, U, mu=None):
+        gauss = self._random_matrix
+        Q = self.sqrt_product
+        op = NumpyMatrixOperator(gauss, source_id=Q.range.id, range_id=self.range.id)
+        return op.apply(Q.apply(U))
+    
+    
+    def update(self):
+        self._random_matrix = self._compute_random_matrix()
+    
+    
+    def _compute_matrix(self):
+        gauss = self._random_matrix
+        Q = self.sqrt_product
+        mat = Q.apply_adjoint(Q.range.from_numpy(gauss.conj())).to_numpy().conj()
+        return mat
+        
+    
+    def _compute_random_matrix(self):
+        k = self.range.dim
+        n = self.sqrt_product.range.dim
+        seed = self.options.get('seed')
+        gauss = np.random.RandomState(seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
+        return gauss
+   
 
 
