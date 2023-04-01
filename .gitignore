@@ -1,5 +1,0 @@
-# Ignore the spyder project folder
-.spyproject
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
