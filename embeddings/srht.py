@@ -104,7 +104,54 @@ def fht(a) -> None:
     d = np.log2(a.shape[0])
     assert d%1 == 0
     assert a.ndim <= 2
-    if a.ndim == 1 or a.shape[1] == 1:
+    if a.ndim == 1:
         _fht_1d(a)
+    elif a.shape[1] == 1:
+        _fht_1d(a[:,0])
     elif a.ndim == 2:
         _fht_2d(a)
+
+
+def srht(x, k, seed=None):
+    """
+    Compute the srht of each element of a numpy array ()
+
+    Parameters
+    ----------
+    x : ndarray of shape (n,) or (n,m)
+        Array on which the SRHT embedding is computed.
+    k : int
+        Dimension of the embedding space.
+    seed : int, optional
+        Seed of the random number generator. Default is None.
+    Returns
+    -------
+    y : ndarray
+        The srht transform of each columns of x.
+
+    """
+    # Managin the dimension of x
+    assert x.ndim <= 2
+    y = x.copy()
+    if x.ndim == 1: 
+        y = y.reshape(-1,1)
+        
+    n = y.shape[0]
+    d = int(np.ceil(np.log2(n)))
+    rademacher = np.random.RandomState(seed).choice([-1, 1], (n,1), True)
+    sampling = np.random.RandomState(seed).choice(range(2**d), k, True)
+
+    y = rademacher*y
+    # Adding zeros if the vectors are not of size 2**d
+    y = np.append(y, np.zeros((2**d-n, y.shape[1])), axis=0)
+    # Applying the inplace Fast Hadamard Transform
+    fht(y)
+    # sampling and rescaling
+    y = np.sqrt(n/k) * y[sampling, :]
+    
+    # reshape to the same ndim as x if necessary
+    if x.ndim == 1:
+        y = y.reshape(-1)
+        
+    return y
+
