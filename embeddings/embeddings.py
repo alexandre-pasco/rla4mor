@@ -14,7 +14,7 @@ from pymor.operators.constructions import Operator, IdentityOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from fht import fht
+from srht import fht, srht
 
 
 
@@ -142,47 +142,12 @@ class SrhtEmbedding(RandomEmbedding):
             range_dim = range_dim * np.log(3*a*d / delta)
             range_dim = int(np.ceil(range_dim))
         return range_dim
-    
-    
-    def srht(self, x):
-        """
-        Compute the srht of each element of a numpy array ()
 
-        Parameters
-        ----------
-        x : ndarray 
-            Array of shape (N,k), viewed as k vectors of size N.
-
-        Returns
-        -------
-        PHDx : ndarray
-            The srht transform of each element of x
-
-        """
-        # Managin the dimension of x
-        assert x.ndim <= 2
-        if x.ndim == 1: x = x.reshape((-1,1))
-            
-        n = self.sqrt_product.range.dim
-        k = self.range.dim
-        d = int(np.ceil(np.log2(n)))
-        seed = self.options.get('seed')
-        rademacher = np.random.RandomState(seed).choice([-1, 1], (n,1), True)
-        sampling = np.random.RandomState(seed).choice(range(2**d), k, True)
-
-        Dx = rademacher*x
-        # Adding zeros if the vectors are not of size 2**d
-        Dx = np.append(Dx, np.zeros((2**d-n, x.shape[1])), axis=0)
-        # Applying the inplace Fast Hadamard Transform
-        fht(Dx)
-        # sampling and rescaling
-        PHDx = np.sqrt(n/k) * Dx[sampling, :]
-        return PHDx
         
     def apply(self, U, mu=None):
         assert U in self.source
         qu = self.sqrt_product.apply(U)
-        squ = self.srht(qu.to_numpy().T)
+        squ = srht(qu.to_numpy().T, self.range.dim, self.options.get('seed'))
         result = self.range.from_numpy(squ.T)
         return result
     
@@ -211,15 +176,15 @@ class SrhtEmbedding(RandomEmbedding):
         k = self.range.dim
         d = int(np.ceil(np.log2(n)))
         seed = self.options.get('seed')
+        
+        
         rademacher = np.random.RandomState(seed).choice([-1, 1], n, replace=True)
         sampling = np.random.RandomState(seed).choice(range(2**d), k, replace=True)
 
         P = np.zeros((len(indices), 2**d))
         for i in range(len(indices)):
             P[sampling[i],i] = 1
-
         fht(P)
-
         DHP = np.sqrt(1/k) * P[:n,:] * rademacher
         return DHP
 
