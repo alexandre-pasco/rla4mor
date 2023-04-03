@@ -8,6 +8,7 @@ Created on Fri Mar 31 14:35:17 2023
 
 
 import numpy as np
+from scipy.sparse import eye
 from pymor.tools.frozendict import FrozenDict
 from pymor.core.base import abstractmethod
 from pymor.operators.constructions import Operator, IdentityOperator
@@ -248,5 +249,47 @@ class GaussianEmbedding(RandomEmbedding):
         gauss = np.random.RandomState(seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
         return gauss
    
+
+        
+class IdentityEmbedding(RandomEmbedding):
+
+    def __init__(self, source=None, sqrt_product=None, options=None):
+        
+        assert not(source is None) or not(sqrt_product is None)
+        self.__auto_init(locals())
+        self.options = FrozenDict(options)
+        if sqrt_product is None:
+            self.sqrt_product = IdentityOperator(source)
+        self.source = self.sqrt_product.source
+        self.range = NumpyVectorSpace(self.compute_dim())
+        self._matrix = None
+        self._random_matrix = self._compute_random_matrix()
+        self.linear = True
+
+    def compute_dim(self):
+        return self.source.dim
+    
+    def apply(self, U, mu=None):
+        return self.sqrt_product.apply(U)
+    
+    def apply_adjoint(self, U, mu=None):
+        
+        return self.source.from_numpy(self.sqrt_product.apply_adjoint(U).to_numpy())
+    
+    def update(self):
+        pass
+    
+    
+    def _compute_matrix(self):
+        if hasattr(self.sqrt_product, 'get_matrix'):
+            mat = self.sqrt_product.get_matrix()
+        else:
+            vec = self.source.from_numpy(np.eye(self.source.dim))
+            mat = self.apply(vec).to_numpy().T
+        return mat
+    
+    
+    def _compute_random_matrix(self):
+        return eye(self.source.dim)
 
 
