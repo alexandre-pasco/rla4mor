@@ -15,7 +15,7 @@ from pymor.operators.constructions import Operator, IdentityOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from srht import fht, srht
+from embeddings.srht import fht, srht
 
 
 
@@ -198,6 +198,8 @@ class GaussianEmbedding(RandomEmbedding):
     
         assert not(source is None) or not(sqrt_product is None)
         self.__auto_init(locals())
+        if options.get('seed') is None:
+            options['seed'] = np.random.randint(0, high=2**32-1)
         self.options = FrozenDict(options)
         if sqrt_product is None:
             self.sqrt_product = IdentityOperator(source)
@@ -293,3 +295,56 @@ class IdentityEmbedding(RandomEmbedding):
         return eye(self.source.dim)
 
 
+class EmbeddingVectorized(RandomEmbedding):
+    """
+    Sketch a whole vector array by vectorizing it then applying a gaussian
+    sketch.
+    """
+    def __init__(self, source, n_vectors, options=None):
+        
+        self.__auto_init(locals())
+        if options.get('seed') is None:
+            options['seed'] = np.random.randint(0, high=2**32-1)
+        self.options = FrozenDict(options)
+        self.range = NumpyVectorSpace(self.compute_dim()) 
+        self._matrix = None
+        self._random_matrix = self._compute_random_matrix()
+        self.linear = True
+        self.parametric = False
+
+    def compute_dim(self):
+        return self.source.dim
+    
+    def apply(self, U, mu=None):
+        assert U in self.source
+        assert len(U) == self.n_vectors
+        x = U.to_numpy().T.flatten()
+        y = self._random_matrix @ x
+        result = self.range.from_numpy(y)
+        return result
+    
+    def apply_adjoint(self, U, mu=None):
+        pass
+    
+    def update(self):
+        self._random_matrix = self._compute_random_matrix()
+    
+    
+    def _compute_matrix(self):
+        return self._random_matrix
+    
+    
+    def _compute_random_matrix(self):
+        k = self.range.dim
+        n = self.source.dim * self.n_vectors
+        seed = self.options.get('seed')
+        gauss = np.random.RandomState(seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
+        return gauss
+    
+    
+    
+    
+    
+    
+    
+    

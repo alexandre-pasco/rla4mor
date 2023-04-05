@@ -155,6 +155,7 @@ class InverseLuOperator(Operator):
         return result
         
         
+    
 class ScipyLinearOperator(LinearOperator):
     """
     Class used to wrap a pymor Operator to a scipy LinearOperator, which can
