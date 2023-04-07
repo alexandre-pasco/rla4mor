@@ -8,14 +8,14 @@ Created on Sun Apr  2 16:00:29 2023
 
 import numpy as np
 from pymor.algorithms.preassemble import preassemble
-from pymor.algorithms.simplify import expand
+from pymor.algorithms.simplify import expand, contract
 from pymor.core.base import BasicObject
 from pymor.models.basic import StationaryModel
 from pymor.models.interface import Model
 from pymor.vectorarrays.interface import VectorArray
 from pymor.operators.constructions import IdentityOperator, LincombOperator, ZeroOperator, ConcatenationOperator, InverseOperator, VectorArrayOperator
 from pymor.parameters.functionals import ProjectionParameterFunctional
-
+from pymor.parameters.base import Mu
 
 from pymor.algorithms.image import estimate_image
 from pymor.algorithms.projection import project
@@ -49,11 +49,17 @@ class SketchedPreconditionedReductor(BasicObject):
     
     Attibutes
     ---------
+    fom : StationaryModel
+        The full order model to reduce.
+    reduced_basis : VectorArray
+        The reduced basis used for the Galerkin projection.
+    source_bases : dict o
+        Dictionary containing the 
     """
     
     
-    def __init__(self, fom, source_bases, range_bases, reduced_basis,
-                 range_embeddings, vec_embeddings,
+    def __init__(self, fom, reduced_basis, source_bases, range_bases,
+                 source_embeddings, range_embeddings, vec_embeddings,
                  intermediate_bases=None, product=None):
         
         assert source_bases.keys() == range_bases.keys()
@@ -80,21 +86,24 @@ class SketchedPreconditionedReductor(BasicObject):
         self.error_indicators_ls_rhs = dict()
         for key in source_bases.keys():
             self.error_indicators_ls_lhs[key] = []
-            self.error_indicators_ls_rhs[key] = self._sketch_operator(IdentityOperator(fom.solution_space),key)
+            self.error_indicators_ls_rhs[key] = self._sketch_operator(
+                IdentityOperator(fom.solution_space),key).matrix.reshape(-1)
 
     def _sketch_operator(self, operator, key):
-        Vs = self.source_bases[key]
         Vr = self.range_bases[key]
         op = self.vec_embeddings[key] @ self.range_embeddings[key]
-        if Vr is None:
-            op = self.vec_embeddings[key] @ self.range_embeddings[key]
         if not(Vr is None):
             op = op @ VectorArrayOperator(Vr, adjoint=True) @ self.product
+        if self.source_bases[key] is None:
+            Vs = self.product.apply_inverse(self.source_embeddings[key].as_source_array())
+        else:
+            Vs = self.source_bases[key].lincomb(self.source_embeddings[key].get_matrix())
+        
         result = project(op @ operator, None, Vs)
         return result
     
     
-    def build_ls_lhs(self, mu, key):
+    def _build_ls_lhs(self, mu, key):
         lst = self.error_indicators_ls_lhs.get(key)
         assert not(lst is None) and len(lst)>0
         W = np.zeros((lst[0].range.dim, len(lst))) # to do : add dtype
@@ -102,8 +111,28 @@ class SketchedPreconditionedReductor(BasicObject):
             W[:,i] = column_op.assemble(mu).matrix.reshape(-1)
         return W
 
+    def _solve_ls(self, mu, key):
+        W = self._build_ls_lhs(mu, key)
+        h = self.error_indicators_ls_rhs[key]
+        x, rnorm2, _, _ = np.linalg.lstsq(W, h, rcond=None)
+        rnorm = np.sqrt(rnorm2)
+        return x, rnorm
     
-    def _preconditioner_to_rom(self, P):
+    def assemble_rom(self, mu, key):
+        x, _ = self._solve_ls(mu, key)
+        mu_p = Mu({'precond': x})
+        rom = self._last_rom
+        reduced_lhs_1 = rom.operator.operators[0].assemble(mu_p)
+        reduced_lhs_2 = rom.operator.operators[1].assemble(mu)
+        reduced_lhs = contract(reduced_lhs_1 @ reduced_lhs_2).matrix
+        reduced_rhs_1 = rom.rhs.operators[0].assemble(mu_p)
+        reduced_rhs_2 = rom.rhs.operators[1].assemble(mu)
+        reduced_rhs = contract(reduced_rhs_1 @ reduced_rhs_2).matrix.reshape(-1)
+        return reduced_lhs, reduced_rhs
+    
+    
+    
+    def _add_preconditioner_to_rom(self, P):
         Ru = self.product
         RB = self.reduced_basis
         op_lhs_1 = project(P.H @ Ru, self.intermediate_bases['lhs'], RB, Ru)
@@ -143,7 +172,12 @@ class SketchedPreconditionedReductor(BasicObject):
             op = self._sketch_operator(P @ self.fom.operator, key)
             self.error_indicators_ls_lhs[key].append(op)
         
-        self._last_rom = self._preconditioner_to_rom(P)
+        self._last_rom = self._add_preconditioner_to_rom(P)
         self.mu_added.append(mu)
     
+
+
+# class PreconditionedModel(Model):
     
+
+

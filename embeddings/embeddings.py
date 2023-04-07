@@ -312,7 +312,7 @@ class EmbeddingVectorized(RandomEmbedding):
         self.linear = True
 
     def compute_dim(self):
-        return self.source.dim
+        return self.source.dim * self.n_vectors
     
     def apply(self, U, mu=None):
         assert U in self.source
