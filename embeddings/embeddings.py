@@ -310,7 +310,6 @@ class EmbeddingVectorized(RandomEmbedding):
         self._matrix = None
         self._random_matrix = self._compute_random_matrix()
         self.linear = True
-        self.parametric = False
 
     def compute_dim(self):
         return self.source.dim
