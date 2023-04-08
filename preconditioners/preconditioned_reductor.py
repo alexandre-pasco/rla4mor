@@ -124,10 +124,10 @@ class SketchedPreconditionedReductor(BasicObject):
         rom = self._last_rom
         reduced_lhs_1 = rom.operator.operators[0].assemble(mu_p)
         reduced_lhs_2 = rom.operator.operators[1].assemble(mu)
-        reduced_lhs = contract(reduced_lhs_1 @ reduced_lhs_2).matrix
+        reduced_lhs = reduced_lhs_1.matrix @ reduced_lhs_2.matrix
         reduced_rhs_1 = rom.rhs.operators[0].assemble(mu_p)
         reduced_rhs_2 = rom.rhs.operators[1].assemble(mu)
-        reduced_rhs = contract(reduced_rhs_1 @ reduced_rhs_2).matrix.reshape(-1)
+        reduced_rhs = (reduced_rhs_1.matrix @ reduced_rhs_2.matrix).reshape(-1)
         return reduced_lhs, reduced_rhs
     
     
@@ -176,7 +176,7 @@ class SketchedPreconditionedReductor(BasicObject):
         self.mu_added.append(mu)
     
 
-
+# to do
 # class PreconditionedModel(Model):
     
 
