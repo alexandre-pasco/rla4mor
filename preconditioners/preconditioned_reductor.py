@@ -9,6 +9,7 @@ Created on Sun Apr  2 16:00:29 2023
 import numpy as np
 from pymor.algorithms.preassemble import preassemble
 from pymor.algorithms.simplify import expand, contract
+from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
 from pymor.models.basic import StationaryModel
 from pymor.models.interface import Model
@@ -22,25 +23,6 @@ from pymor.algorithms.projection import project
 
 from embeddings.embeddings import *
 
-# class PreconditionedStationaryModel(Model):
-    
-#     def __init__(self, operator, rhs, output_functional=None, products=None,
-#                   error_estimator=None, visualizer=None, name=None):
-
-#         if isinstance(rhs, VectorArray):
-#             assert rhs in operator.range
-#             rhs = VectorOperator(rhs, name='rhs')
-#         output_functional = output_functional or ZeroOperator(NumpyVectorSpace(0), operator.source)
-
-#         assert rhs.range == operator.range and rhs.source.is_scalar and rhs.linear
-#         assert output_functional.source == operator.source
-
-#         super().__init__(products=products, error_estimator=error_estimator, visualizer=visualizer, name=name)
-
-#         self.__auto_init(locals())
-#         self.solution_space = operator.source
-#         self.linear = operator.linear and output_functional.linear
-#         self.dim_output = output_functional.range.dim
 
 
 class SketchedPreconditionedReductor(BasicObject):
@@ -53,8 +35,28 @@ class SketchedPreconditionedReductor(BasicObject):
         The full order model to reduce.
     reduced_basis : VectorArray
         The reduced basis used for the Galerkin projection.
-    source_bases : dict o
-        Dictionary containing the 
+    source_bases : dict
+        Dictionary containing the bases of the source space for the error 
+        estimators.
+    range_bases : dict
+        Dictionary containing the bases of the range space for the error 
+        estimators.
+    source_embeddings : dict
+        Dictionary containing the embeddings of the source space for the error 
+        estimators.
+    range_embeddings : dict
+        Dictionary containing the embeddings of the range space for the error 
+        estimators.
+    vec_embeddings : dict
+        Dictionary containing the embeddings to vectorize the sketched range 
+        space for the error estimators.
+    intermediate_bases : dict
+        Dictionary containing the image of some operators, in order to improve 
+        the numerical stability when assembling the Galerkin system. The key 
+        'lhs' contains an ortho basis of fom.operator with reduced_basis as source.
+        The key 'rhs' contains an ortho basis of fom.rhs.
+    product : Operator
+        A symetric positive definite operator, encoding the inner product.
     """
     
     
@@ -90,6 +92,23 @@ class SketchedPreconditionedReductor(BasicObject):
                 IdentityOperator(fom.solution_space),key).matrix.reshape(-1)
 
     def _sketch_operator(self, operator, key):
+        """
+        Compute the sketch of an operator, and return the projected operator, 
+        which is a linear form, whose range is the range of self.vec_embeddings[key]
+
+        Parameters
+        ----------
+        operator : Operator
+            The operator to sketch.
+        key : str
+            The dictionary key to select the bases and embeddings to use.
+
+        Returns
+        -------
+        result : Operator
+            The sketched operator, which is actually a linear form.
+
+        """
         Vr = self.range_bases[key]
         op = self.vec_embeddings[key] @ self.range_embeddings[key]
         if not(Vr is None):
@@ -102,37 +121,84 @@ class SketchedPreconditionedReductor(BasicObject):
         result = project(op @ operator, None, Vs)
         return result
     
+ 
+    def estimate_quasi_optimality(self, mu_p):
+        assert 'u_ur' in self.range_bases.keys()
+        delta_2 = self._estimate_spectral(mu_p, 'u_ur')
+        delta_3 = self._compute_spectral(mu_p)
+        if delta_3 >= 1:
+            Warning("Quasi optimality bound not defined")
+            result = 0
+        else:
+            result = 1 + delta_2 / (1 - delta_3)
+        return result
     
-    def _build_ls_lhs(self, mu, key):
+    def _compute_spectral(self, mu_p):
+        A, b = self._assemble_rom_system(mu_p)
+        _, s, _ = np.linalg.svd(A - np.eye(A.shape[0]))
+        snorm = s.max()
+        return snorm
+
+    
+    def _estimate_spectral(self, mu_p, key):
+        W, h = self._assemble_spectral_estimator(mu_p, key)
+        residual = W @ mu_p['precond'] - h
+        rnorm = np.linalg.norm(residual)
+        return rnorm
+    
+    def _assemble_spectral_estimator(self, mu, key):
         lst = self.error_indicators_ls_lhs.get(key)
         assert not(lst is None) and len(lst)>0
+        h = self.error_indicators_ls_rhs[key]
         W = np.zeros((lst[0].range.dim, len(lst))) # to do : add dtype
         for i, column_op in enumerate(lst):
             W[:,i] = column_op.assemble(mu).matrix.reshape(-1)
-        return W
+        return W, h
 
-    def _solve_ls(self, mu, key):
-        W = self._build_ls_lhs(mu, key)
-        h = self.error_indicators_ls_rhs[key]
+    def _minimize_spectral_estimator(self, mu, key):
+        W, h = self._assemble_spectral_estimator(mu, key)
         x, rnorm2, _, _ = np.linalg.lstsq(W, h, rcond=None)
+        mu_p_ = dict()
+        for k in mu.keys():
+            mu_p_[k] = mu[k]
+        mu_p_['precond'] = x
+        mu_p = Mu(mu_p_)
         rnorm = np.sqrt(rnorm2)
-        return x, rnorm
+        return mu_p, rnorm
     
-    def assemble_rom(self, mu, key):
-        x, _ = self._solve_ls(mu, key)
-        mu_p = Mu({'precond': x})
+    def _assemble_rom_system(self, mu_p):
         rom = self._last_rom
-        reduced_lhs_1 = rom.operator.operators[0].assemble(mu_p)
-        reduced_lhs_2 = rom.operator.operators[1].assemble(mu)
-        reduced_lhs = reduced_lhs_1.matrix @ reduced_lhs_2.matrix
-        reduced_rhs_1 = rom.rhs.operators[0].assemble(mu_p)
-        reduced_rhs_2 = rom.rhs.operators[1].assemble(mu)
-        reduced_rhs = (reduced_rhs_1.matrix @ reduced_rhs_2.matrix).reshape(-1)
+        # use to_matrix to avoid pymor warnings
+        reduced_lhs = to_matrix(rom.operator, None, mu_p)
+        reduced_rhs = to_matrix(rom.rhs, None, mu_p).reshape(-1)
         return reduced_lhs, reduced_rhs
     
     
+    def solve(self, mu, key):
+        # Compute the parameter of the preconditioner
+        mu_p, _ = self._minimize_spectral_estimator(mu, key)
+        # solve the corresponding preconditioned galerkin rom
+        u = self._last_rom.solve(mu_p)
+        return u
     
     def _add_preconditioner_to_rom(self, P):
+        """
+        Compute the rom with the new preconditioner P.
+
+        Parameters
+        ----------
+        P : Operator
+            The Operator to add to the preconditioners. If P is the inverse of
+            self.fom.operator(mu) for some mu, then it is a new interpolation 
+            point for approximating the inverse of the inverse of self.fom.operator.
+
+        Returns
+        -------
+        rom : StationaryModel
+            The reduced order model obtained by adding P to the preconditioner
+            part of the last rom.
+
+        """
         Ru = self.product
         RB = self.reduced_basis
         op_lhs_1 = project(P.H @ Ru, self.intermediate_bases['lhs'], RB, Ru)
@@ -147,8 +213,8 @@ class SketchedPreconditionedReductor(BasicObject):
         if last_rom is None:
             op_lhs_2 = project(self.fom.operator, self.intermediate_bases['lhs'], RB)
             op_rhs_2 = project(self.fom.rhs, self.intermediate_bases['rhs'], None)
-            reduced_lhs = (coefficients[0] * op_lhs_1.H) @ op_lhs_2
-            reduced_rhs = (coefficients[0] * op_rhs_1.H) @ op_rhs_2
+            operators_lhs_1 = [op_lhs_1.H]
+            operators_rhs_1 = [op_rhs_1.H]
         else:
             assert isinstance(last_rom.operator, ConcatenationOperator)
             assert isinstance(last_rom.rhs, ConcatenationOperator)
@@ -158,16 +224,33 @@ class SketchedPreconditionedReductor(BasicObject):
             op_lhs_2 = last_rom.operator.operators[1]
             op_rhs_2 = last_rom.rhs.operators[1]
             
-            reduced_lhs = LincombOperator(operators_lhs_1, coefficients) @ op_lhs_2
-            reduced_rhs = LincombOperator(operators_rhs_1, coefficients) @ op_rhs_2
+        solver_options = {'inverse': 'to_matrix'}
+        reduced_lhs = ConcatenationOperator((LincombOperator(operators_lhs_1, coefficients), op_lhs_2), solver_options)
+        reduced_rhs = ConcatenationOperator((LincombOperator(operators_rhs_1, coefficients), op_rhs_2), solver_options)
         
         rom = StationaryModel(reduced_lhs, reduced_rhs)
         return rom
         
-        
-    # def preassemble_rom(self, P):
-    
+
     def add_preconditioner(self, P, mu=None):
+        """
+        Add the operator P within the preconditioner, for ervery spectral 
+        norm estimators and for the galerkin system.
+
+        Parameters
+        ----------
+        P : Operator
+            The Operator to add to the preconditioners. If P is the inverse of
+            self.fom.operator(mu) for some mu, then it is a new interpolation 
+            point for approximating the inverse of the inverse of self.fom.operator.
+        mu : Mu, optional
+            The parameter corresponding to P. The default is None.
+
+        Returns
+        -------
+        None.
+
+        """
         for key in self.error_indicators_ls_lhs.keys():
             op = self._sketch_operator(P @ self.fom.operator, key)
             self.error_indicators_ls_lhs[key].append(op)
@@ -175,9 +258,3 @@ class SketchedPreconditionedReductor(BasicObject):
         self._last_rom = self._add_preconditioner_to_rom(P)
         self.mu_added.append(mu)
     
-
-# to do
-# class PreconditionedModel(Model):
-    
-
-
