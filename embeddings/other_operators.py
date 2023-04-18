@@ -9,7 +9,8 @@ Created on Mon Apr  3 11:25:00 2023
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, splu, svds
 from scipy.sparse import csc_matrix
-from pymor.operators.constructions import Operator
+from pymor.operators.constructions import Operator, LincombOperator
+from pymor.operators.numpy import NumpyMatrixOperator
 from sksparse.cholmod import cholesky
 from scikits import umfpack
 
@@ -153,55 +154,3 @@ class InverseLuOperator(Operator):
             sol = self.factorization(umfpack.UMFPACK_At, self.factorization.mtx, x[i])
             result[i] = sol
         return result
-        
-        
-    
-class ScipyLinearOperator(LinearOperator):
-    """
-    Class used to wrap a pymor Operator to a scipy LinearOperator, which can
-    be used as a preconditioner for iterative solving method like GMRES.
-    """
-    def __init__(self, operator, dtype=None):
-        self.operator = operator
-        self.shape = (operator.range.dim, operator.source.dim)
-        self.dtype = dtype
-    
-    def _matvec(self, x):
-        if len(x.shape) == 2:
-            x = x.reshape(-1)
-        u = self.operator.source.from_numpy(x)
-        return self.operator.apply(u).to_numpy().reshape(-1)
-    
-    def _rmatvec(self, x):
-        if len(x.shape) == 2:
-            x = x.reshape(-1)
-        u = self.operator.range.from_numpy(x)
-        return self.operator.apply_adjoint(u).to_numpy().reshape(-1)
-    
-
-
-def cond_estimate(operator, inverse=None, tol=0, verbose=False):
-    A = ScipyLinearOperator(operator)    
-    if isinstance(inverse, Operator):
-        Ainv = ScipyLinearOperator(inverse)
-    if verbose:
-        print("==Cond number estimation==")
-        print("estimation highest sv")
-    
-    # computing the highest singular value
-    _, smax, _ = svds(A, k=1, tol=tol)
-    
-    # factorizing if necessary
-    if inverse is None:
-        if verbose:
-            print("factorizing A")
-        Ainv = ScipyLinearOperator(InverseLuOperator(operator))
-        
-    if verbose:
-        print("estimation lowest sv")
-    # computing the lowest singular value
-    _, inv_smin, _ = svds(Ainv, k=1, tol=tol)
-    
-    smin = 1 / inv_smin
-    cond = smax / smin
-    return cond
