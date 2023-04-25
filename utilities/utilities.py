@@ -7,7 +7,7 @@ Created on Tue Apr 18 15:48:03 2023
 """
 
 import numpy as np
-from scipy.sparse.linalg import LinearOperator, svds
+from scipy.sparse.linalg import LinearOperator
 from pymor.operators.constructions import Operator, LincombOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 
@@ -66,51 +66,6 @@ def stack_lincomb_operators(operators):
     result = LincombOperator(new_operators, op0.coefficients)
     return result
 
-
-# def cond_estimate(operator, inverse=None, tol=0, verbose=False):
-#     A = ScipyLinearOperator(operator)    
-#     if isinstance(inverse, Operator):
-#         Ainv = ScipyLinearOperator(inverse)
-#     if verbose:
-#         print("==Cond number estimation==")
-#         print("estimation highest sv")
-    
-#     # computing the highest singular value
-#     _, smax, _ = svds(A, k=1, tol=tol)
-    
-#     # factorizing if necessary
-#     if inverse is None:
-#         if verbose:
-#             print("factorizing A")
-#         Ainv = ScipyLinearOperator(InverseLuOperator(operator))
-        
-#     if verbose:
-#         print("estimation lowest sv")
-#     # computing the lowest singular value
-#     _, inv_smin, _ = svds(Ainv, k=1, tol=tol)
-    
-#     smin = 1 / inv_smin
-#     cond = smax / smin
-#     return cond
-
-
-
-
-def power_iteration(operator, n_iter=100, tol=1e-2, product=None):
-    n = operator.range.dim
-    v_k = operator.source.from_numpy(np.random.normal(scale=1/np.sqrt(n), size=n))
-
-    k = 0
-    convergence = False
-    while k<n_iter and not(convergence):
-        v_k1 = product.apply_inverse(operator.apply(v_k))
-        v_k1_norm = v_k1.norm(product)
-        v_k1.scal(1/v_k1_norm)
-        v_k = v_k1
-        k += 1
-    
-    ev = v_k1.inner(operator.apply(v_k1), product) / v_k1_norm
-    return ev
 
 
 

@@ -7,10 +7,9 @@ Created on Mon Apr  3 11:25:00 2023
 """
 
 import numpy as np
-from scipy.sparse.linalg import LinearOperator, splu, svds
+from scipy.sparse.linalg import splu
 from scipy.sparse import csc_matrix
-from pymor.operators.constructions import Operator, LincombOperator
-from pymor.operators.numpy import NumpyMatrixOperator
+from pymor.operators.constructions import Operator
 from sksparse.cholmod import cholesky
 from scikits import umfpack
 
