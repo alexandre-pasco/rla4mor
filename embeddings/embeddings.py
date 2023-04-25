@@ -312,7 +312,19 @@ class EmbeddingVectorized(RandomEmbedding):
         self.linear = True
 
     def compute_dim(self):
-        return self.source.dim * self.n_vectors
+        opt = self.options
+        range_dim = opt.get('range_dim')
+        eps = opt.get('epsilon')
+        delta = opt.get('delta')
+        d = opt.get('oblivious_dim')
+        assert range_dim or all([eps, delta, d])
+        if range_dim is None:
+            a = 1
+            if opt.get('dtype') == complex:
+                a = 2
+            range_dim = 7.87 * (1/eps**2) * (a * 6.9 * d + np.log(1/delta))
+            range_dim = int(np.ceil(range_dim))
+        return range_dim
     
     def apply(self, U, mu=None):
         assert U in self.source
