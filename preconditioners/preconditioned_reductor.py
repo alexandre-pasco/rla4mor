@@ -9,12 +9,14 @@ Created on Sun Apr  2 16:00:29 2023
 import numpy as np
 from pymor.algorithms.preassemble import preassemble
 from pymor.algorithms.simplify import expand, contract
-from pymor.algorithms.to_matrix import to_matrix, ToMatrixRules
+from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
+from pymor.core.defaults import set_defaults
 from pymor.models.basic import StationaryModel
 from pymor.models.interface import Model
 from pymor.vectorarrays.interface import VectorArray
 from pymor.operators.constructions import IdentityOperator, LincombOperator, ZeroOperator, ConcatenationOperator, InverseOperator, VectorArrayOperator
+from pymor.operators.interface import as_array_max_length
 from pymor.parameters.functionals import ProjectionParameterFunctional
 from pymor.parameters.base import Mu
 
@@ -27,7 +29,9 @@ from embeddings.embeddings import *
 
 class SketchedPreconditionedReductor(BasicObject):
     """
-    Class implementing a sketched preconditionned reductor.
+    Class implementing a sketched preconditionned reductor. Several attributes 
+    of this class are dictionaries. The associated keys correspond to the different
+    spectral norm estimators (i.e. sketched HS norms).
     
     Attibutes
     ---------
@@ -60,6 +64,19 @@ class SketchedPreconditionedReductor(BasicObject):
     stable_galerkin : bool, optional
         If True, uses the intermediate basis projection to improve stability of
         the preconditioned galerkin system.
+    
+    error_indicators_ls_lhs: dict
+        Dictionary containing lists of LincombOperator. For each key, 
+        the ith element of the list is the affine decomposition of the sketch 
+        of Pi @ self.fom.lhs, where Pi is the ith direction in the 
+        preconditioners space.
+    error_indicators_ls_rhs: dict
+        Dictionary containing a ndarray, which are the sketch of the identity 
+        operator for the different keys.
+    sketched_source_bases: dict of VectorArray
+        
+    sketched_range_bases: dict of VectorArray
+        
 
     """
     
@@ -75,29 +92,41 @@ class SketchedPreconditionedReductor(BasicObject):
         if product is None:
             self.product = IdentityOperator(fom.solution_space)
             
-        # to allow separation of the galerkin system
         if intermediate_bases is None:
-            intermediate_bases = dict()
-            intermediate_bases['lhs'] = estimate_image(
-                fom.operator.operators, domain=reduced_basis, 
-                product=product, riesz_representatives=True)
-
-            intermediate_bases['rhs'] = estimate_image(
-                vectors=(fom.rhs,), product=product, riesz_representatives=True)
-            
-            self.intermediate_bases = intermediate_bases
+            self.stable_galerkin = False
         
         # for the HS indicators
+        self.sketched_source_bases = dict()
+        self.sketched_range_bases = dict()
+        for key, V in source_bases.items():
+            S = source_embeddings[key]
+            if isinstance(S, IdentityEmbedding) or V is None:
+                self.sketched_source_bases[key] = V
+            else:
+                self.sketched_source_bases[key] = V.lincomb(S.get_matrix())
+        
+        for key, V in range_bases.items():
+            S = range_embeddings[key]
+            if isinstance(S, IdentityEmbedding) or V is None:
+                self.sketched_range_bases[key] = V
+            else:
+                self.sketched_range_bases[key] = V.lincomb(S.get_matrix())
+        
+        
         self.error_indicators_ls_lhs = dict()
         self.error_indicators_ls_rhs = dict()
         for key in source_bases.keys():
             self.error_indicators_ls_lhs[key] = []
             self.error_indicators_ls_rhs[key] = self._sketch_operator(
-                IdentityOperator(fom.solution_space),key).matrix.reshape(-1)
-
+                IdentityOperator(fom.solution_space), key).matrix.reshape(-1)
+        
+        # change default value to be able to use to_matrix
+        if len(reduced_basis) >= as_array_max_length():
+            set_defaults({'pymor.operators.interface.as_array_max_length.value':1+len(reduced_basis)})
+        
     def _sketch_operator(self, operator, key):
         """
-        Compute the sketch of an operator, and return the projected operator, 
+        Compute the sketch of an operator U -> U, and return the projected operator, 
         which is a linear form, whose range is the range of self.vec_embeddings[key]
 
         Parameters
@@ -113,22 +142,28 @@ class SketchedPreconditionedReductor(BasicObject):
             The sketched operator, which is actually a linear form.
 
         """
-        Vr = self.range_bases[key]
-        op = self.vec_embeddings[key] @ self.range_embeddings[key]
-        if not(Vr is None):
-            op = op @ VectorArrayOperator(Vr, adjoint=True) @ self.product
-        if self.source_bases[key] is None:
-            Vs = self.product.apply_inverse(self.source_embeddings[key].as_source_array())
-        else:
-            Vs = self.source_bases[key].lincomb(self.source_embeddings[key].get_matrix())
+        Vr = self.sketched_range_bases[key]
+        Vs = self.sketched_source_bases[key]
+        Ru = self.product
         
-        result = project(op @ operator, None, Vs)
+        if Vr is None:
+            Vr = self.product.apply_inverse(self.range_embeddings[key].as_source_array())
+        
+        if Vs is None:
+            op = project(operator @ InverseOperator(Ru) @ self.source_embeddings[key].H, Vr, None, Ru)
+        else:
+            # we want to first compute operator.H @ Vr
+            op = project(operator, Vr, None, Ru)
+            op = project(op, None, Vs)
+        
+        result = contract(expand(self.vec_embeddings[key] @ op))
+        
         return result
     
  
     def estimate_quasi_optimality(self, mu_p):
         assert 'u_ur' in self.range_bases.keys()
-        delta_2 = self._estimate_spectral(mu_p, 'u_ur')
+        delta_2 = self._estimate_hs(mu_p, 'u_ur')
         delta_3 = self._compute_spectral(mu_p)
         if delta_3 >= 1:
             Warning("Quasi optimality bound not defined")
@@ -138,19 +173,41 @@ class SketchedPreconditionedReductor(BasicObject):
         return result
     
     def _compute_spectral(self, mu_p):
-        A, b = self._assemble_rom_system(mu_p)
+        A, b = self.assemble_rom_system(mu_p)
         _, s, _ = np.linalg.svd(A - np.eye(A.shape[0]))
         snorm = s.max()
         return snorm
 
     
-    def _estimate_spectral(self, mu_p, key):
-        W, h = self._assemble_spectral_estimator(mu_p, key)
+    def _estimate_hs(self, mu_p, key):
+        W, h = self.assemble_hs_estimator(mu_p, key)
         residual = W @ mu_p['precond'] - h
         rnorm = np.linalg.norm(residual)
         return rnorm
     
-    def _assemble_spectral_estimator(self, mu, key):
+    def assemble_hs_estimator(self, mu, key):
+        """
+        Assemble the least-squares system for the corresponding key and parameter
+        value. Minizing $y = \min_{x} ||Wx - h||$ gives the preconditioner 
+        $P=\Sum_{i=1}^p y_i P_i$ which minimizes the sketched HS norm for the
+        corresponding key and mu.^
+
+        Parameters
+        ----------
+        mu : Mu
+            Parameter value.
+        key : string
+            The key to identify some HS norm estimator.
+
+        Returns
+        -------
+        W : (k,p) ndarray
+            Each column is the sketch of Pi @ self.fom.operator, for Pi in 
+            the added precontitioners.
+        h : (k,) ndarray
+            Sketch of the identity operator.
+
+        """
         lst = self.error_indicators_ls_lhs.get(key)
         assert not(lst is None) and len(lst)>0
         h = self.error_indicators_ls_rhs[key]
@@ -159,8 +216,29 @@ class SketchedPreconditionedReductor(BasicObject):
             W[:,i] = column_op.assemble(mu).matrix.reshape(-1)
         return W, h
 
-    def _minimize_spectral_estimator(self, mu, key):
-        W, h = self._assemble_spectral_estimator(mu, key)
+    def minimize_hs_estimator(self, mu, key):
+        """
+        Minimize the sketched HS norm of (P @ self.fom.lhs - I) for the 
+        corresponding key.
+
+        Parameters
+        ----------
+        mu : Mu
+            The parameter value.
+        key : string
+            The key to identify some HS norm estimator which is to minimize.
+
+        Returns
+        -------
+        mu_p : Mu
+            Parameter value, extended with a 'precond' key, which contains
+            the coefficients of the preconditioners which minimises the 
+            sketched HS norm for the corresponding key.
+        rnorm : float
+            Sketched HS norm of P @ self.fom.operator - I
+
+        """
+        W, h = self.assemble_hs_estimator(mu, key)
         x, rnorm2, _, _ = np.linalg.lstsq(W, h, rcond=None)
         mu_p_ = dict()
         for k in mu.keys():
@@ -170,34 +248,60 @@ class SketchedPreconditionedReductor(BasicObject):
         rnorm = np.sqrt(rnorm2)
         return mu_p, rnorm
     
-    def _assemble_rom_system(self, mu_p):
+    def assemble_rom_system(self, mu_p):
+        """
+        
+
+        Parameters
+        ----------
+        mu_p : Mu
+            Parameter value, extended with a 'precond' key, which contains
+            the coefficients of the preconditioners.
+
+        Returns
+        -------
+        reduced_lhs : (r,r) ndarray
+            The preconditioned galerkin lhs.
+        reduced_rhs : (r,) ndarray
+            The preconditioned galerkin rhs.
+
+        """
         rom = self._last_rom
         # use to_matrix to avoid pymor warnings
         reduced_lhs = to_matrix(rom.operator, None, mu_p)
         reduced_rhs = to_matrix(rom.rhs, None, mu_p).reshape(-1)
-        # # use ToMatrixRules to avoid pymor warnings
-        # rule = ToMatrixRules('dense', mu_p)
-        # reduced_lhs = rule.apply(rom.operator)
-        # reduced_rhs = rule.apply(rom.rhs).reshape(-1)
         return reduced_lhs, reduced_rhs
     
     
     def solve(self, mu, key):
+        """
+        Solve the preconditioned galerkin system for parameter value mu,
+        where the preconditioner is obtained by minimizing the HS norm 
+        associated to 'key'.
+
+        Parameters
+        ----------
+        mu : Mu
+            Parameter value.
+        key : string
+            The key to identify some HS norm estimator.
+
+        Returns
+        -------
+        u : NumpyVectorArray
+            The coefficients within self.reduced_basis.
+
+        """
         # Compute the parameter of the preconditioner
-        mu_p, _ = self._minimize_spectral_estimator(mu, key)
+        mu_p, _ = self.minimize_hs_estimator(mu, key)
         # solve the corresponding preconditioned galerkin rom
-        # u = self._last_rom.solve(mu_p)
-        lhs = ToMatrixRules('dense', mu_p).apply(self._last_rom.operator)
-        rhs = ToMatrixRules('dense', mu_p).apply(self._last_rom.rhs).reshape(-1)
-        u = np.linalg.solve(lhs, rhs)
-        
+        u = self._last_rom.solve(mu_p)
         return u
     
-    # to do and debug
     def _add_preconditioner_to_rom(self, P):
         """
         Compute the rom with the new preconditioner P, where rom.operator and 
-        rom.rhs are LincombOperators. This is made by computing P @ Ai for all
+        rom.rhs are LincombOperators. This is made by computing (P.H @ RB).H @ Ai for all
         Ai in self.fom.operator.operators. The rom.operators.operators are then
         Pj @ Ai for all Pj in the added preconditioners and Ai in the affine terms
         of self.fom.operators. 
@@ -205,27 +309,16 @@ class SketchedPreconditionedReductor(BasicObject):
         Note that this approach can be numerically unstable and involves a lot 
         of affine terms.
 
-        Parameters
-        ----------
-        P : Operator
-            The Operator to add to the preconditioners. If P is the inverse of
-            self.fom.operator(mu) for some mu, then it is a new interpolation 
-            point for approximating the inverse of the inverse of self.fom.operator.
-
-        Returns
-        -------
-        rom : StationaryModel
-            The reduced order model obtained by adding P to the preconditioner
-            part of the last rom.
-
         """
         Ru = self.product
         RB = self.reduced_basis
         np = len(self.mu_added)
         
-        op = P * ProjectionParameterFunctional('precond', size=np+1, index=np)
-        op_lhs = project(op @ self.fom.operator, RB, RB, product=Ru)
-        op_rhs = project(op @ self.fom.rhs, RB, None, product=Ru)
+        op = project(P, RB, None, product=Ru)
+        op = op * ProjectionParameterFunctional('precond', size=np+1, index=np)
+        
+        op_lhs = project(op @ self.fom.operator, None, RB)
+        op_rhs = contract(expand(op @ self.fom.rhs))
         
         last_rom = self._last_rom
         
@@ -234,10 +327,9 @@ class SketchedPreconditionedReductor(BasicObject):
             reduced_rhs = op_rhs
             
         else:
-            
+            # function to add 1 to the size attribute of the ProjectionParameterFunctional
+            # in the coefficients of the preconditioner parameters.
             def update_functional_size(operator):
-                # add 1 to the size of the first ProjectionParameterFunctional
-                # within operator.coefficients
                 last_coefs = operator.coefficients
                 new_coefs = []
                 
@@ -260,7 +352,7 @@ class SketchedPreconditionedReductor(BasicObject):
             
         rom = StationaryModel(reduced_lhs, reduced_rhs)
         return rom
-            
+    
             
     def _add_preconditioner_to_rom_stable(self, P):
         """
@@ -271,19 +363,6 @@ class SketchedPreconditionedReductor(BasicObject):
         
         This is a more stable way to compute the affine decomposition of the 
         preconditioned Galerkin, involving less affine terms.
-
-        Parameters
-        ----------
-        P : Operator
-            The Operator to add to the preconditioners. If P is the inverse of
-            self.fom.operator(mu) for some mu, then it is a new interpolation 
-            point for approximating the inverse of the inverse of self.fom.operator.
-
-        Returns
-        -------
-        rom : StationaryModel
-            The reduced order model obtained by adding P to the preconditioner
-            part of the last rom.
 
         """
         Ru = self.product
@@ -317,11 +396,36 @@ class SketchedPreconditionedReductor(BasicObject):
         
         rom = StationaryModel(reduced_lhs, reduced_rhs)
         return rom
-        
+
+
+    def add_preconditioner_to_rom(self, P):
+        """
+        Compute the rom with the new preconditioner P
+
+        Parameters
+        ----------
+        P : Operator
+            The Operator to add to the preconditioners. If P is the inverse of
+            self.fom.operator(mu) for some mu, then it is a new interpolation 
+            point for approximating the inverse of the inverse of self.fom.operator.
+
+        Returns
+        -------
+        rom : StationaryModel
+            The reduced order model obtained by adding P to the preconditioner
+            part of the last rom.
+
+        """
+        if self.stable_galerkin:
+            result = self._add_preconditioner_to_rom_stable(P)
+        else:
+            result = self._add_preconditioner_to_rom(P)
+        return result
+
 
     def add_preconditioner(self, P, mu=None):
         """
-        Add the operator P within the preconditioner, for ervery spectral 
+        Add the operator P within the preconditioner, for every spectral 
         norm estimators and for the galerkin system.
 
         Parameters
@@ -342,9 +446,5 @@ class SketchedPreconditionedReductor(BasicObject):
             op = self._sketch_operator(P @ self.fom.operator, key)
             self.error_indicators_ls_lhs[key].append(op)
         
-        if self.stable_galerkin:
-            self._last_rom = self._add_preconditioner_to_rom_stable(P)
-        else:
-            self._last_rom = self._add_preconditioner_to_rom(P)
+        self._last_rom = self.add_preconditioner_to_rom(P)
         self.mu_added.append(mu)
-    
