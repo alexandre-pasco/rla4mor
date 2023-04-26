@@ -114,6 +114,7 @@ class SrhtEmbedding(RandomEmbedding):
     def __init__(self, source=None, sqrt_product=None, options=None):
     
         assert not(source is None) or not(sqrt_product is None)
+        if options is None: options = dict()
         if options.get('seed') is None:
             options['seed'] = np.random.randint(0, high=2**32-1)
         self.__auto_init(locals())
@@ -197,9 +198,10 @@ class GaussianEmbedding(RandomEmbedding):
     def __init__(self, source=None, sqrt_product=None, options=None):
     
         assert not(source is None) or not(sqrt_product is None)
-        self.__auto_init(locals())
+        if options is None: options = dict()
         if options.get('seed') is None:
             options['seed'] = np.random.randint(0, high=2**32-1)
+        self.__auto_init(locals())
         self.options = FrozenDict(options)
         if sqrt_product is None:
             self.sqrt_product = IdentityOperator(source)
@@ -258,6 +260,7 @@ class IdentityEmbedding(RandomEmbedding):
     def __init__(self, source=None, sqrt_product=None, options=None):
         
         assert not(source is None) or not(sqrt_product is None)
+        if options is None: options = dict()
         self.__auto_init(locals())
         self.options = FrozenDict(options)
         if sqrt_product is None:
@@ -302,9 +305,10 @@ class EmbeddingVectorized(RandomEmbedding):
     """
     def __init__(self, source, n_vectors, options=None):
         
-        self.__auto_init(locals())
+        if options is None: options = dict()
         if options.get('seed') is None:
             options['seed'] = np.random.randint(0, high=2**32-1)
+        self.__auto_init(locals())
         self.options = FrozenDict(options)
         self.range = NumpyVectorSpace(self.compute_dim()) 
         self._matrix = None
