@@ -20,7 +20,7 @@ from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 from embeddings.embeddings import GaussianEmbedding, EmbeddingVectorized
 from embeddings.other_operators import CholeskyOperator
-from preconditioners.preconditioned_reductor import SketchedPreconditionedReductor
+from preconditioners.preconditioned_reductor import PreconditionedReductor
 
 # %% Toy problem
 
@@ -78,7 +78,7 @@ gamma_ur_ur = EmbeddingVectorized(omega_ur_ur.range, sigma_ur_ur.range.dim, {'ra
 # %%
 
 def test_hs_estimators():
-    reductor = SketchedPreconditionedReductor(
+    reductor = PreconditionedReductor(
         fom = fom, 
         reduced_basis = u_basis,
         source_bases = {'u_ur': None, 'ur_ur': u_basis, 'u_u': None}, 
@@ -101,7 +101,7 @@ def test_hs_estimators():
     return result
 
 def test_galerkin():
-    reductor = SketchedPreconditionedReductor(
+    reductor = PreconditionedReductor(
         fom = fom, 
         reduced_basis = u_basis,
         source_bases = {'u_ur': None, 'ur_ur': u_basis, 'u_u': None}, 
@@ -135,7 +135,7 @@ def test_galerkin():
     return result
     
 def test_galerkin_stable():
-    reductor = SketchedPreconditionedReductor(
+    reductor = PreconditionedReductor(
         fom = fom, 
         reduced_basis = u_basis,
         source_bases = {'u_ur': None, 'ur_ur': u_basis, 'u_u': None}, 
