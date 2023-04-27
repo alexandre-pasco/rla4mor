@@ -163,13 +163,14 @@ class SrhtEmbedding(RandomEmbedding):
     
     def _compute_matrix(self):
         Q = self.sqrt_product
-        s = self.get_random_matrix()
-        mat = Q.apply_adjoint(Q.range.from_numpy(s.conj())).to_numpy().conj()
+        rmat = self.get_random_matrix()
+        mat = Q.apply_adjoint(Q.range.from_numpy(rmat)).to_numpy()
         return mat
     
     
     def _compute_random_matrix(self):
-        mat = self._get_rows([i for i in range(self.range.dim)])
+        self.logger.warning_once("Computing explicit SRHT matrix")
+        mat = self._get_rows(np.arange(self.range.dim))
         return mat
     
     
@@ -179,16 +180,15 @@ class SrhtEmbedding(RandomEmbedding):
         d = int(np.ceil(np.log2(n)))
         seed = self.options.get('seed')
         
-        
-        rademacher = np.random.RandomState(seed).choice([-1, 1], n, replace=True)
+        rademacher = np.random.RandomState(seed).choice([-1, 1], (n,1), replace=True)
         sampling = np.random.RandomState(seed).choice(range(2**d), k, replace=True)
 
-        P = np.zeros((len(indices), 2**d))
-        for i in range(len(indices)):
-            P[sampling[i],i] = 1
-        fht(P)
-        DHP = np.sqrt(1/k) * P[:n,:] * rademacher
-        return DHP
+        Pt = np.zeros((2**d, len(indices)))
+        for i, ind in enumerate(indices):
+            Pt[sampling[ind],i] = 1
+        fht(Pt)
+        DHP = np.sqrt(n/k) * Pt[:n,:] * rademacher
+        return DHP.T
 
 
 
