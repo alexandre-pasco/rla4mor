@@ -149,7 +149,13 @@ class PreconditionedReductor(BasicObject):
             Vr = self.product.apply_inverse(self.range_embeddings[key].as_source_array())
         
         if Vs is None:
-            op = project(operator @ InverseOperator(Ru) @ self.source_embeddings[key].H, Vr, None, Ru)
+            if isinstance(operator, ConcatenationOperator):
+                V = operator.operators[0].apply_adjoint(Ru.apply(Vr))
+                op = project(operator.operators[1], V, None)
+                op = contract(expand(self.source_embeddings[key] @ InverseOperator(Ru) @ op.H)).H
+            else:
+                op = project(self.source_embeddings[key] @ InverseOperator(Ru) @ operator.H @ Ru, None, Vr).H
+                # op = project(operator @ InverseOperator(Ru) @ self.source_embeddings[key].H, Vr, None, Ru)
         else:
             # we want to first compute operator.H @ Vr
             op = project(operator, Vr, None, Ru)
