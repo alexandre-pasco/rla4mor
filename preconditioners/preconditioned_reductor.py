@@ -114,14 +114,14 @@ class PreconditionedReductor(BasicObject):
         self.hs_estimators_rhs = dict()
         for key in source_bases.keys():
             self.hs_estimators_lhs[key] = []
-            self.hs_estimators_rhs[key] = self._sketch_operator(
+            self.hs_estimators_rhs[key] = self.sketch_operator(
                 IdentityOperator(fom.solution_space), key).matrix.reshape(-1)
         
         # change default value to be able to use to_matrix
         if len(reduced_basis) >= as_array_max_length():
             set_defaults({'pymor.operators.interface.as_array_max_length.value':1+len(reduced_basis)})
         
-    def _sketch_operator(self, operator, key):
+    def sketch_operator(self, operator, key):
         """
         Compute the sketch of a U -> U operator, and return the projected operator, 
         which is a LincombOperator with a source dimension equal to 1. It will
@@ -452,7 +452,7 @@ class PreconditionedReductor(BasicObject):
         with self.logger.block(f"Adding preconditioner at {mu}"):
             
             for key in self.hs_estimators_lhs.keys():
-                op = self._sketch_operator(P @ self.fom.operator, key)
+                op = self.sketch_operator(P @ self.fom.operator, key)
                 self.hs_estimators_lhs[key].append(op)
             
             self._last_rom = self.add_preconditioner_to_rom(P)
