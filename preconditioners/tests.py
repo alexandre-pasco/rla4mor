@@ -22,6 +22,11 @@ from embeddings.embeddings import GaussianEmbedding, EmbeddingVectorized
 from embeddings.other_operators import CholeskyOperator
 from preconditioners.preconditioned_reductor import PreconditionedReductor
 
+from pymor.core.logger import set_log_levels
+
+# %%
+set_log_levels({'pymor':30})
+
 # %% Toy problem
 
 grid_shape = (2,2)
@@ -74,6 +79,9 @@ sigma_ur_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_di
 omega_ur_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
 gamma_ur_ur = EmbeddingVectorized(omega_ur_ur.range, sigma_ur_ur.range.dim, {'range_dim':k_precond})
 
+# for residual
+theta = GaussianEmbedding(lhs.source, Qu, {'range_dim':200})
+
 
 # %%
 
@@ -86,11 +94,13 @@ def test_hs_estimators():
         source_embeddings = {'u_ur': sigma_u_ur, 'ur_ur': sigma_ur_ur, 'u_u': sigma_u_u},
         range_embeddings = {'u_ur': omega_u_ur, 'ur_ur': omega_ur_ur, 'u_u': omega_u_u},
         vec_embeddings = {'u_ur': gamma_u_ur, 'ur_ur': gamma_ur_ur, 'u_u': gamma_u_u},
+        residual_embedding = theta,
         intermediate_bases = None,
         product = Ru,
-        stable_galerkin=False
+        stable_galerkin=False,
+        log_level = 30
         )
-    
+
     for mu, op in zip(mu_precond, preconditioner.operators):
         reductor.add_preconditioner(op, mu=mu)
 
@@ -109,9 +119,11 @@ def test_galerkin():
         source_embeddings = {'u_ur': sigma_u_ur, 'ur_ur': sigma_ur_ur, 'u_u': sigma_u_u},
         range_embeddings = {'u_ur': omega_u_ur, 'ur_ur': omega_ur_ur, 'u_u': omega_u_u},
         vec_embeddings = {'u_ur': gamma_u_ur, 'ur_ur': gamma_ur_ur, 'u_u': gamma_u_u},
+        residual_embedding = theta,
         intermediate_bases = None,
         product = Ru,
-        stable_galerkin=False
+        stable_galerkin=False,
+        log_level = 30
         )
     
     for mu, op in zip(mu_precond, preconditioner.operators):
@@ -133,7 +145,54 @@ def test_galerkin():
     result = np.allclose(Bmu, Bp) and np.allclose(fmu, fp)
     
     return result
+
+
+def test_residual():
+    reductor = PreconditionedReductor(
+        fom = fom, 
+        reduced_basis = u_basis,
+        source_bases = {'u_ur': None, 'ur_ur': u_basis, 'u_u': None}, 
+        range_bases = {'u_ur': u_basis, 'ur_ur': u_basis, 'u_u': None},
+        source_embeddings = {'u_ur': sigma_u_ur, 'ur_ur': sigma_ur_ur, 'u_u': sigma_u_u},
+        range_embeddings = {'u_ur': omega_u_ur, 'ur_ur': omega_ur_ur, 'u_u': omega_u_u},
+        vec_embeddings = {'u_ur': gamma_u_ur, 'ur_ur': gamma_ur_ur, 'u_u': gamma_u_u},
+        residual_embedding = theta,
+        intermediate_bases = None,
+        product = Ru,
+        stable_galerkin=False,
+        log_level = 30
+        )
     
+    for mu, op in zip(mu_precond, preconditioner.operators):
+        reductor.add_preconditioner(op, mu=mu)
+
+    mu = mu_space.sample_randomly(1)[0]
+    mu_p = Mu({'diffusion':mu['diffusion'], 'precond':np.random.normal(size=n_precond)})
+    
+    # preconditioned galerkin by hand
+    B = Ru @ preconditioner @ lhs
+    f = Ru @ preconditioner @ rhs
+    Bmu = B.apply2(u_basis, u_basis, mu_p)
+    fmu = f.apply_adjoint(u_basis, mu_p).to_numpy().reshape(-1)
+    
+    amu = np.linalg.solve(Bmu, fmu)
+    umu = u_basis.lincomb(amu)
+    
+    residual = theta.apply(
+        preconditioner.apply(
+            lhs.apply(umu, mu) - rhs.as_range_array(mu), mu_p
+            )
+        )
+    rnorm = residual.norm()
+    
+    # preconditioned galerkin by reductor
+    prnorm = reductor.prom.rom.estimate_error(mu_p)
+    
+    # check if equal
+    result = np.allclose(prnorm, rnorm)
+    
+    return result
+
 def test_galerkin_stable():
     reductor = PreconditionedReductor(
         fom = fom, 
@@ -143,9 +202,11 @@ def test_galerkin_stable():
         source_embeddings = {'u_ur': sigma_u_ur, 'ur_ur': sigma_ur_ur, 'u_u': sigma_u_u},
         range_embeddings = {'u_ur': omega_u_ur, 'ur_ur': omega_ur_ur, 'u_u': omega_u_u},
         vec_embeddings = {'u_ur': gamma_u_ur, 'ur_ur': gamma_ur_ur, 'u_u': gamma_u_u},
+        residual_embedding = theta,
         intermediate_bases = intermediate_bases,
         product = Ru,
-        stable_galerkin=True
+        stable_galerkin=True,
+        log_level = 30
         )
     
     for mu, op in zip(mu_precond, preconditioner.operators):
@@ -165,6 +226,53 @@ def test_galerkin_stable():
     
     # check if equal
     result = np.allclose(Bmu, Bp) and np.allclose(fmu, fp)
+    
+    return result
+
+
+def test_residual_stable():
+    reductor = PreconditionedReductor(
+        fom = fom, 
+        reduced_basis = u_basis,
+        source_bases = {'u_ur': None, 'ur_ur': u_basis, 'u_u': None}, 
+        range_bases = {'u_ur': u_basis, 'ur_ur': u_basis, 'u_u': None},
+        source_embeddings = {'u_ur': sigma_u_ur, 'ur_ur': sigma_ur_ur, 'u_u': sigma_u_u},
+        range_embeddings = {'u_ur': omega_u_ur, 'ur_ur': omega_ur_ur, 'u_u': omega_u_u},
+        vec_embeddings = {'u_ur': gamma_u_ur, 'ur_ur': gamma_ur_ur, 'u_u': gamma_u_u},
+        residual_embedding = theta,
+        intermediate_bases = intermediate_bases,
+        product = Ru,
+        stable_galerkin=True,
+        log_level = 30
+        )
+    
+    for mu, op in zip(mu_precond, preconditioner.operators):
+        reductor.add_preconditioner(op, mu=mu)
+
+    mu = mu_space.sample_randomly(1)[0]
+    mu_p = Mu({'diffusion':mu['diffusion'], 'precond':np.random.normal(size=n_precond)})
+    
+    # preconditioned galerkin by hand
+    B = Ru @ preconditioner @ lhs
+    f = Ru @ preconditioner @ rhs
+    Bmu = B.apply2(u_basis, u_basis, mu_p)
+    fmu = f.apply_adjoint(u_basis, mu_p).to_numpy().reshape(-1)
+    
+    amu = np.linalg.solve(Bmu, fmu)
+    umu = u_basis.lincomb(amu)
+    
+    residual = theta.apply(
+        preconditioner.apply(
+            lhs.apply(umu, mu) - rhs.as_range_array(mu), mu_p
+            )
+        )
+    rnorm = residual.norm()
+    
+    # preconditioned galerkin by reductor
+    prnorm = reductor.prom.rom.estimate_error(mu_p)
+    
+    # check if equal
+    result = np.allclose(prnorm, rnorm)
     
     return result
 
@@ -258,11 +366,17 @@ def test_ur_ur(reductor):
 
 if __name__ == '__main__':
     
-    print('Testing HS estimators:', end='')
+    print('Testing HS estimators:', end=' ')
     print(f'{test_hs_estimators()}')
 
-    print('Testing preconditioned galerkin system:', end='')
+    print('Testing preconditioned galerkin system:', end=' ')
     print(f'{test_galerkin()}')
     
-    print('Testing preconditioned galerkin system stable:', end='')
+    print('Testing preconditioned residual:', end=' ')
+    print(f'{test_residual()}')
+    
+    print('Testing preconditioned galerkin system stable:', end=' ')
     print(f'{test_galerkin_stable()}')
+    
+    print('Testing preconditioned residual:', end=' ')
+    print(f'{test_residual_stable()}')
