@@ -11,7 +11,7 @@ from pymor.algorithms.simplify import expand, contract
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
 from pymor.core.defaults import set_defaults
-from pymor.operators.constructions import IdentityOperator, ConcatenationOperator, InverseOperator, LincombOperator
+from pymor.operators.constructions import IdentityOperator, InverseOperator, LincombOperator
 from pymor.operators.interface import as_array_max_length
 from pymor.parameters.base import Mu
 
