@@ -83,9 +83,13 @@ gamma_ur_ur = EmbeddingVectorized(omega_ur_ur.range, sigma_ur_ur.range.dim, {'ra
 theta = GaussianEmbedding(lhs.source, Qu, {'range_dim':200})
 
 
-# %%
+# %% Tests related
 
 def test_hs_estimators():
+    """
+    Testing all of the three HS estimators
+                   
+    """
     reductor = PreconditionedReductor(
         fom = fom, 
         reduced_basis = u_basis,
@@ -111,6 +115,10 @@ def test_hs_estimators():
     return result
 
 def test_galerkin():
+    """
+    Testing the preconditionned galerkin system.
+
+    """
     reductor = PreconditionedReductor(
         fom = fom, 
         reduced_basis = u_basis,
@@ -148,6 +156,10 @@ def test_galerkin():
 
 
 def test_residual():
+    """
+    Testing the preconditionned residual.
+
+    """
     reductor = PreconditionedReductor(
         fom = fom, 
         reduced_basis = u_basis,
@@ -194,6 +206,11 @@ def test_residual():
     return result
 
 def test_galerkin_stable():
+    """
+    Testing the preconditionned galerkin system with intermediate basis for 
+    stability.
+
+    """
     reductor = PreconditionedReductor(
         fom = fom, 
         reduced_basis = u_basis,
@@ -231,6 +248,11 @@ def test_galerkin_stable():
 
 
 def test_residual_stable():
+    """
+    Testing the preconditionned residual with intermediate basis for 
+    stability.
+
+    """
     reductor = PreconditionedReductor(
         fom = fom, 
         reduced_basis = u_basis,
@@ -280,6 +302,11 @@ def test_residual_stable():
 # %%
 
 def test_u_u(reductor):
+    """
+    
+    Testing the HS(U,U') estimator
+                   
+    """
     mu = mu_space.sample_randomly(1)[0]
     mu_p = Mu({'diffusion':mu['diffusion'], 'precond':np.random.normal(size=n_precond)})
     
@@ -307,6 +334,11 @@ def test_u_u(reductor):
     return result
 
 def test_u_ur(reductor):
+    """
+    
+    Testing the HS(U,Ur') estimator
+                   
+    """
     mu = mu_space.sample_randomly(1)[0]
     mu_p = Mu({'diffusion':mu['diffusion'], 'precond':np.random.normal(size=n_precond)})
 
@@ -335,6 +367,11 @@ def test_u_ur(reductor):
     
     
 def test_ur_ur(reductor):
+    """
+    
+    Testing the HS(Ur,Ur') estimator
+                   
+    """
     mu = mu_space.sample_randomly(1)[0]
     mu_p = Mu({'diffusion':mu['diffusion'], 'precond':np.random.normal(size=n_precond)})
 

@@ -11,14 +11,14 @@ from pymor.algorithms.simplify import expand, contract
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
 from pymor.core.defaults import set_defaults
-from pymor.operators.constructions import IdentityOperator, ConcatenationOperator, InverseOperator
+from pymor.operators.constructions import IdentityOperator, ConcatenationOperator, InverseOperator, LincombOperator
 from pymor.operators.interface import as_array_max_length
 from pymor.parameters.base import Mu
 
 from pymor.algorithms.projection import project
 
 from embeddings.embeddings import IdentityEmbedding
-from preconditioned_rom import PreconditionedRom
+from preconditioners.preconditioned_rom import PreconditionedRom
 
 
 class PreconditionedReductor(BasicObject):
@@ -118,7 +118,7 @@ class PreconditionedReductor(BasicObject):
         for key in source_bases.keys():
             self.hs_estimators_lhs[key] = []
             self.hs_estimators_rhs[key] = self.sketch_operator(
-                IdentityOperator(fom.solution_space), key).matrix.reshape(-1)
+                self.product, key).matrix.reshape(-1)
         
         # change default value to be able to use to_matrix
         if len(reduced_basis) >= as_array_max_length():
@@ -126,7 +126,7 @@ class PreconditionedReductor(BasicObject):
         
     def sketch_operator(self, operator, key):
         """
-        Compute the sketch of a U -> U operator, and return the projected operator, 
+        Compute the sketch of a U -> U' operator, and return the projected operator, 
         which is a LincombOperator with a source dimension equal to 1. It will
         be used to build the columns of the systems for the HS norm estimations.
 
@@ -152,19 +152,22 @@ class PreconditionedReductor(BasicObject):
             Vr = self.product.apply_inverse(self.range_embeddings[key].as_source_array())
         
         if Vs is None:
-            if isinstance(operator, ConcatenationOperator):
-                V = operator.operators[0].apply_adjoint(Ru.apply(Vr))
-                op = project(operator.operators[1], V, None)
-                op = contract(expand(self.source_embeddings[key] @ InverseOperator(Ru) @ op.H)).H
-            else:
-                op = project(self.source_embeddings[key] @ InverseOperator(Ru) @ operator.H @ Ru, None, Vr).H
-                # op = project(operator @ InverseOperator(Ru) @ self.source_embeddings[key].H, Vr, None, Ru)
+            op = project(operator, Vr, None)
+            new_op = contract(expand(self.source_embeddings[key] @ InverseOperator(Ru) @ op.H)).H
+            
+            # optional : simplify the conjugate conjugate functionals
+            if isinstance(new_op, LincombOperator):
+                # we do not use the op.coefficients, because the ordering may have change
+                coefs = [c if np.isscalar(c) else c.functional.functional for c in new_op.coefficients]
+                new_op = new_op.with_(coefficients=coefs)
+            
+    
         else:
             # we want to first compute operator.H @ Vr
-            op = project(operator, Vr, None, Ru)
-            op = project(op, None, Vs)
+            op = project(operator, Vr, None)
+            new_op = project(op, None, Vs)
         
-        result = contract(expand(self.vec_embeddings[key] @ op))
+        result = contract(expand(self.vec_embeddings[key] @ new_op))
         
         return result
     
@@ -329,7 +332,7 @@ class PreconditionedReductor(BasicObject):
         with self.logger.block(f"Adding preconditioner at {mu}"):
             
             for key in self.hs_estimators_lhs.keys():
-                op = self.sketch_operator(P @ self.fom.operator, key)
+                op = self.sketch_operator(self.product @ P @ self.fom.operator, key)
                 self.hs_estimators_lhs[key].append(op)
             
             self.prom.add_preconditioner(P, mu)
