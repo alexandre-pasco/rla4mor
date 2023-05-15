@@ -14,6 +14,7 @@ from sksparse.cholmod import cholesky
 from scikits import umfpack
 
 
+
 class CholeskyOperator(Operator):
     """
     
@@ -36,7 +37,7 @@ class CholeskyOperator(Operator):
     
     """
     
-    def __init__(self, operator, mode="auto", ordering_method="default"):
+    def __init__(self, operator, mode="auto", ordering_method="default", iscomplex=False):
         self.__auto_init(locals())
         self.linear = True
         self.source = operator.source
@@ -45,26 +46,63 @@ class CholeskyOperator(Operator):
         
         
     def apply(self, U, mu=None):
+        if self.iscomplex:
+            Vr = self._apply_real(U.real, mu)
+            Vi = self._apply_real(U.imag, mu)
+            result = Vr + 1.j * Vi
+        else:
+            result = self._apply_real(U, mu)
+        return result
+    
+    def apply_inverse(self, U, mu=None):
+        if self.iscomplex:
+            Vr = self._apply_inverse_real(U.real, mu)
+            Vi = self._apply_inverse_real(U.imag, mu)
+            result = Vr + 1.j * Vi
+        else:
+            result = self.apply_inverse_real(U, mu)
+        return result
+
+    def apply_adjoint(self, U, mu=None):
+        if self.iscomplex:
+            Vr = self._apply_adjoint_real(U.real, mu)
+            Vi = self._apply_adjoint_real(U.imag, mu)
+            result = Vr + 1.j * Vi
+        else:
+            result = self._apply_adjoint_real(U, mu)
+        return result
+
+    def apply_inverse_adjoint(self, U, mu=None):
+        if self.iscomplex:
+            Vr = self._apply_inverse_adjoint_real(U.real, mu)
+            Vi = self._apply_inverse_adjoint_real(U.imag, mu)
+            result = Vr + 1.j * Vi
+        else:
+            result = self._apply_inverse_adjoint_real(U, mu)
+        return result
+
+
+    def _apply_real(self, U, mu=None):
+        
         factor = self.factor
         Lt = factor.L().T
         result = Lt.dot(factor.apply_P(U.to_numpy().T))
         return self.source.from_numpy(result.T)
     
-    
-    def apply_inverse(self, U, mu=None, **kwargs):
+    def _apply_inverse_real(self, U, mu=None, **kwargs):
         factor = self.factor
         result = factor.apply_Pt(factor.solve_Lt(U.to_numpy().T))
         return self.range.from_numpy(result.T)
     
     
-    def apply_adjoint(self, U, mu=None):
+    def _apply_adjoint_real(self, U, mu=None):
         factor = self.factor
         L = factor.L()
         result = factor.apply_Pt(L.dot(U.to_numpy().T))
         return self.range.from_numpy(result.T)
     
     
-    def apply_inverse_adjoint(self, U, mu=None, **kwargs):
+    def _apply_inverse_adjoint_real(self, U, mu=None, **kwargs):
         assert U in self.source
         factor = self.factor
         result = factor.solve_L(factor.apply_P(U.to_numpy().T), False)
@@ -92,8 +130,7 @@ class InverseLuOperator(Operator):
         depending if umfpack is used. 
         
     """
-    def __init__(self, operator, factorization=None, permc_spec="COLAMD", use_umfpack=True,
-                 source_id=None, range_id=None):
+    def __init__(self, operator, factorization=None, permc_spec="COLAMD", use_umfpack=True):
         self.__auto_init(locals())
         self.linear = True
         self.source = operator.source

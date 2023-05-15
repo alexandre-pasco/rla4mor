@@ -70,7 +70,8 @@ class PreconditionedReductor(BasicObject):
     sketched_source_bases: dict of VectorArray
         
     sketched_range_bases: dict of VectorArray
-        
+    
+    dtype: type
 
     """
     
@@ -78,7 +79,7 @@ class PreconditionedReductor(BasicObject):
     def __init__(self, fom, reduced_basis, source_bases, range_bases,
                  source_embeddings, range_embeddings, vec_embeddings,
                  residual_embedding, intermediate_bases=None, product=None, 
-                 stable_galerkin=True, log_level=20):
+                 stable_galerkin=True, dtype=float, log_level=20):
         
         assert source_bases.keys() == range_bases.keys()
         self.__auto_init(locals())
@@ -222,7 +223,7 @@ class PreconditionedReductor(BasicObject):
         lst = self.hs_estimators_lhs.get(key)
         assert not(lst is None) and len(lst)>0
         h = self.hs_estimators_rhs[key]
-        W = np.zeros((lst[0].range.dim, len(lst))) # to do : add dtype
+        W = np.zeros((lst[0].range.dim, len(lst)), dtype=self.dtype)
         for i, column_op in enumerate(lst):
             W[:,i] = column_op.assemble(mu).matrix.reshape(-1)
         return W, h
