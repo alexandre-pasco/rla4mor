@@ -79,7 +79,7 @@ class PreconditionedReductor(BasicObject):
     def __init__(self, fom, reduced_basis, source_bases, range_bases,
                  source_embeddings, range_embeddings, vec_embeddings,
                  residual_embedding, intermediate_bases=None, product=None, 
-                 stable_galerkin=True, dtype=float, log_level=20):
+                 inv_product=None, stable_galerkin=True, dtype=float, log_level=20):
         
         assert source_bases.keys() == range_bases.keys()
         self.__auto_init(locals())
@@ -87,7 +87,9 @@ class PreconditionedReductor(BasicObject):
         self.mu_added = []
         if product is None:
             self.product = IdentityOperator(fom.solution_space)
-            
+        if inv_product is None:
+            self.inv_product = InverseOperator(self.product)
+        
         if intermediate_bases is None:
             self.stable_galerkin = False
         
@@ -153,8 +155,8 @@ class PreconditionedReductor(BasicObject):
             Vr = self.product.apply_inverse(self.range_embeddings[key].as_source_array())
         
         if Vs is None:
-            op = project(operator, Vr, None)
-            new_op = contract(expand(self.source_embeddings[key] @ InverseOperator(Ru) @ op.H)).H
+            op = project(operator.H, None, Vr)
+            new_op = contract(expand(self.source_embeddings[key] @ self.inv_product @ op)).H
             
             # optional : simplify the conjugate conjugate functionals
             if isinstance(new_op, LincombOperator):
