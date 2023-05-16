@@ -34,6 +34,7 @@ class CholeskyOperator(Operator):
         The ordering algorithm used to order the matrix. See CHOLMOD 
         documentation. Default is 'natural', which means no permutation 
         is performed.
+    iscomplex : bool
     
     """
     
