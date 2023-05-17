@@ -148,9 +148,9 @@ class SrhtEmbedding(RandomEmbedding):
         
     def apply(self, U, mu=None):
         assert U in self.source
-        qu = self.sqrt_product.apply(U)
-        squ = srht(qu.to_numpy().T, self.range.dim, self.options.get('seed'))
-        result = self.range.from_numpy(squ.T)
+        qu = self.sqrt_product.apply(U).to_numpy()
+        squ = srht(qu, self.range.dim, self.options.get('seed'))
+        result = self.range.from_numpy(squ)
         return result
     
     
@@ -180,15 +180,15 @@ class SrhtEmbedding(RandomEmbedding):
         d = int(np.ceil(np.log2(n)))
         seed = self.options.get('seed')
         
-        rademacher = np.random.RandomState(seed).choice([-1, 1], (n,1), replace=True)
+        rademacher = np.random.RandomState(seed).choice([-1, 1], (n), replace=True)
         sampling = np.random.RandomState(seed).choice(range(2**d), k, replace=True)
 
-        Pt = np.zeros((2**d, len(indices)))
+        Pt = np.zeros((len(indices), 2**d))
         for i, ind in enumerate(indices):
-            Pt[sampling[ind],i] = 1
+            Pt[i, sampling[ind]] = 1
         fht(Pt)
-        DHP = np.sqrt(n/k) * Pt[:n,:] * rademacher
-        return DHP.T
+        DHP = np.sqrt(n/k) * Pt[:,:n] * rademacher
+        return DHP
 
 
 
