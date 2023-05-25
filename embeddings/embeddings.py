@@ -15,7 +15,7 @@ from pymor.operators.constructions import Operator, IdentityOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from embeddings.srht import fht, srht
+from embeddings.srht import fht_oop, srht
 
 
 
@@ -186,7 +186,7 @@ class SrhtEmbedding(RandomEmbedding):
         Pt = np.zeros((len(indices), 2**d))
         for i, ind in enumerate(indices):
             Pt[i, sampling[ind]] = 1
-        fht(Pt)
+        Pt  = fht_oop(Pt)
         DHP = np.sqrt(n/k) * Pt[:,:n] * rademacher
         return DHP
 

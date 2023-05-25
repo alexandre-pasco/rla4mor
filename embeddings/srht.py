@@ -96,7 +96,7 @@ def _fht_2d_parallel(a) -> None:
         _fht_1d(a[i])
 
 
-def fht(a, nthreads=4) -> None:
+def fht_ip(a) -> None:
     """
     In-place Fast Hadamard Transform of array a with n=2**d rows. Handle 
     float64 and complex128 types of data.
@@ -106,24 +106,34 @@ def fht(a, nthreads=4) -> None:
     a : ndarray of size (2**d,) or (k, 2**d)
         The array on which the FHT is apply. If a is a 2d array, the FHT is 
         apply on each column at the same time.
-    nthreads : int
-        The number of threads to use when using the FFHT library.
     """
     d = np.log2(a.shape[-1])
     assert d%1 == 0
     assert a.ndim <= 2
-    if ffht:
-        ffht.fht_(a, nthreads=nthreads)
-        a /= 2**(d/2)
-    else:
-        if a.ndim == 1:
-            _fht_1d(a)
-        elif a.shape[1] == 1:
-            _fht_1d(a[0])
-        elif a.ndim == 2:
-           _fht_2d_parallel(a)
+    if a.ndim == 1:
+        _fht_1d(a)
+    elif a.shape[1] == 1:
+        _fht_1d(a[0])
+    elif a.ndim == 2:
+       _fht_2d_parallel(a)
 
-def srht(x, k, seed=None):
+
+def fht_oop(a, nthreads=1):
+    d = np.log2(a.shape[-1])
+    assert d%1 == 0
+    assert a.ndim <= 2
+    if ffht:
+        if a.dtype == complex:
+            result = ffht.fht(a.real.copy(), nthreads) + 1.j*ffht.fht(a.imag.copy(), nthreads)
+        else:
+            result = ffht.fht(a, nthreads)
+        result /= 2**(d/2)
+    else:
+        result = a.copy()
+        fht_ip(result)
+    return result
+
+def srht(x, k, seed=None, nthreads=4):
     """
     Compute the srht of each element of a numpy array ()
 
@@ -156,7 +166,7 @@ def srht(x, k, seed=None):
     # Adding zeros if the vectors are not of size 2**d
     y = np.append(y, np.zeros((y.shape[0], 2**d-n)), axis=1)
     # Applying the inplace Fast Hadamard Transform
-    fht(y)
+    y = fht_oop(y)
     # sampling and rescaling
     y = np.sqrt(n/k) * y[:, sampling]
     
