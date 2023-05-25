@@ -3,12 +3,16 @@
 Implementing randomized linear algebra methods for model order reduction.
 
 ## Requirements :
-This work is based on some packages listed below. For some reasons, conda can take forever to solve environment when installing packages from conda-forge. A solution is to use pip instead (when possible).
+This work is based on some packages that can be installed by running the following commands in a conda virtual environment:
 
-- pymor (`pip install pymor[all]`);
-- matplotlib (`conda install matplotlib`);
-- numba (`conda install numba`)
-- scikit-sparse (`conda install -c conda-forge scikit-sparse`);
-- spams (`pip install spams`);
-- sklearn (`pip install sklearn`);
-- scikits-umfpack (`pip install scikit-umfpack`).
+```
+pip install numpy scipy pymor numba pybind11 matplotlib
+pip install spams scikit-learn scikit-umfpack
+pip install ffht-unofficial
+conda install -c conda-forge scikit-sparse
+```
+Note that `ffht-unofficial` is optional. Also, if `scikit-umfpack` fails to install, you may need to install libsuitesparse-dev by running:
+
+```
+sudo apt-get install libsuitesparse-dev
+```
