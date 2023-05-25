@@ -8,6 +8,8 @@ Created on Fri Mar 31 14:37:56 2023
 
 import numpy as np
 from numba import njit, prange
+try: import ffht
+except: ffht = None
 
 @njit(['void(f8[:])', 'void(c16[:])'])
 def _fht_1d(a) -> None:
@@ -94,7 +96,7 @@ def _fht_2d_parallel(a) -> None:
         _fht_1d(a[i])
 
 
-def fht(a) -> None:
+def fht(a, nthreads=4) -> None:
     """
     In-place Fast Hadamard Transform of array a with n=2**d rows. Handle 
     float64 and complex128 types of data.
@@ -104,17 +106,22 @@ def fht(a) -> None:
     a : ndarray of size (2**d,) or (k, 2**d)
         The array on which the FHT is apply. If a is a 2d array, the FHT is 
         apply on each column at the same time.
-
+    nthreads : int
+        The number of threads to use when using the FFHT library.
     """
     d = np.log2(a.shape[-1])
     assert d%1 == 0
     assert a.ndim <= 2
-    if a.ndim == 1:
-        _fht_1d(a)
-    elif a.shape[1] == 1:
-        _fht_1d(a[0])
-    elif a.ndim == 2:
-       _fht_2d_parallel(a)
+    if ffht:
+        ffht.fht_(a, nthreads=nthreads)
+        a /= 2**(d/2)
+    else:
+        if a.ndim == 1:
+            _fht_1d(a)
+        elif a.shape[1] == 1:
+            _fht_1d(a[0])
+        elif a.ndim == 2:
+           _fht_2d_parallel(a)
 
 def srht(x, k, seed=None):
     """
