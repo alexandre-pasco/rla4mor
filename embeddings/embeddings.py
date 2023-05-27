@@ -30,11 +30,14 @@ class RandomEmbedding(Operator):
         self adjoint operator, enconding the inner product.
     options : FrozenDict
         Immutable dictionary containing options for the embedding. The possible 
-        keys are 'range_dim', 'epsilon', 'delta', 'oblivious_dim' and 'seed'. 
+        keys are 'range_dim', 'epsilon', 'delta' and 'oblivious_dim'. 
     _random_matrix : np.ndarray
         The l2 -> l2 embedding matrix
     _matrix : np.ndarray
         The U -> l2 embedding matrix, i.e. sqrt_product @ _random_matrix.
+    _seed : int
+        The seed of the random number generator.
+        
     """
     
 
@@ -96,7 +99,11 @@ class RandomEmbedding(Operator):
             self._matrix = self._compute_random_matrix()
         return self._matrix
     
-       
+    def set_seed(self, seed=None):
+        if seed is None:
+            seed = np.random.randint(0, high=2**32-1)
+        self._seed = seed
+        
     
     def as_range_array(self):
         result = self.range.from_numpy(self.get_matrix().T)
@@ -112,12 +119,12 @@ class RandomEmbedding(Operator):
 class SrhtEmbedding(RandomEmbedding):
 
     def __init__(self, source=None, sqrt_product=None, options=None,
-                 range_id=None):
+                 range_id=None, _seed=None):
     
         assert not(source is None) or not(sqrt_product is None)
         if options is None: options = dict()
-        if options.get('seed') is None:
-            options['seed'] = np.random.randint(0, high=2**32-1)
+        if _seed is None:
+            _seed = np.random.randint(0, high=2**32-1)
         self.__auto_init(locals())
         self.options = FrozenDict(options)
         if sqrt_product is None:
@@ -150,7 +157,7 @@ class SrhtEmbedding(RandomEmbedding):
     def apply(self, U, mu=None):
         assert U in self.source
         qu = self.sqrt_product.apply(U).to_numpy()
-        squ = srht(qu, self.range.dim, self.options.get('seed'))
+        squ = srht(qu, self.range.dim, self._seed)
         result = self.range.from_numpy(squ)
         return result
     
@@ -179,7 +186,7 @@ class SrhtEmbedding(RandomEmbedding):
         n = self.sqrt_product.range.dim
         k = self.range.dim
         d = int(np.ceil(np.log2(n)))
-        seed = self.options.get('seed')
+        seed = self._seed
         
         rademacher = np.random.RandomState(seed).choice([-1, 1], (n), replace=True)
         sampling = np.random.RandomState(seed).choice(range(2**d), k, replace=True)
@@ -197,12 +204,12 @@ class SrhtEmbedding(RandomEmbedding):
 class GaussianEmbedding(RandomEmbedding):
     
     def __init__(self, source=None, sqrt_product=None, options=None,
-                 range_id=None):
+                 range_id=None, _seed=None):
     
         assert not(source is None) or not(sqrt_product is None)
         if options is None: options = dict()
-        if options.get('seed') is None:
-            options['seed'] = np.random.randint(0, high=2**32-1)
+        if _seed is None:
+            _seed = np.random.randint(0, high=2**32-1)
         self.__auto_init(locals())
         self.options = FrozenDict(options)
         if sqrt_product is None:
@@ -251,7 +258,7 @@ class GaussianEmbedding(RandomEmbedding):
     def _compute_random_matrix(self):
         k = self.range.dim
         n = self.sqrt_product.range.dim
-        seed = self.options.get('seed')
+        seed = self._seed
         gauss = np.random.RandomState(seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
         return gauss
    
@@ -260,7 +267,7 @@ class GaussianEmbedding(RandomEmbedding):
 class IdentityEmbedding(RandomEmbedding):
 
     def __init__(self, source=None, sqrt_product=None, options=None,
-                 range_id=None):
+                 range_id=None, _seed=None):
         
         assert not(source is None) or not(sqrt_product is None)
         if options is None: options = dict()
@@ -306,11 +313,12 @@ class EmbeddingVectorized(RandomEmbedding):
     Sketch a whole vector array by vectorizing it then applying a gaussian
     sketch.
     """
-    def __init__(self, source, n_vectors, options=None, range_id=None):
+    def __init__(self, source, n_vectors, options=None, range_id=None,
+                 _seed=None):
         
         if options is None: options = dict()
-        if options.get('seed') is None:
-            options['seed'] = np.random.randint(0, high=2**32-1)
+        if _seed is None:
+            _seed = np.random.randint(0, high=2**32-1)
         self.__auto_init(locals())
         self.options = FrozenDict(options)
         self.range = NumpyVectorSpace(self.compute_dim(), id=range_id) 
@@ -355,7 +363,7 @@ class EmbeddingVectorized(RandomEmbedding):
     def _compute_random_matrix(self):
         k = self.range.dim
         n = self.source.dim * self.n_vectors
-        seed = self.options.get('seed')
+        seed = self._seed
         gauss = np.random.RandomState(seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
         return gauss
     
