@@ -128,8 +128,9 @@ class SketchedRom(BasicObject):
         return coefs
     
     
-    def from_sketch(self, srom):
+    def from_sketch(self, srom, seed=None):
         
+        self.embedding.set_seed(seed)
         s = self.embedding
         self.srb = s.apply(srom.srb)
         self.slhs = contract(expand(s @ srom.slhs))
