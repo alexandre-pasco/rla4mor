@@ -61,14 +61,9 @@ class PreconditionedRom(BasicObject):
         op_gal_rhs = contract(expand(op_gal @ self.fom.rhs))
         
         # for residual-based estimator
-        if isinstance(self.residual_embedding, VectorArrayOperator):
-            op_res = project(P, self.residual_embedding.as_source_array(), None)
-        elif isinstance(self.residual_embedding, NumpyVectorArray):
-            op_res = project(P, self.residual_embedding, None, self.product)
-        else:
-            op_res = self.residual_embedding @ P
+        op_res = project(P, self.residual_embedding.as_source_array(), None)
         op_res_lhs = func * project(op_res @ self.fom.operator, None, RB)
-        op_res_rhs = func * contract(expand(op_res @ self.fom.rhs))
+        op_res_rhs = contract(expand(op_res*func @ self.fom.rhs))
         
         # last rom
         last_rom = self.rom

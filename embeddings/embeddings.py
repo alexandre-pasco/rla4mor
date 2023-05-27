@@ -15,7 +15,7 @@ from pymor.operators.constructions import Operator, IdentityOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from embeddings.srht import fht_oop, srht
+from .srht import fht_oop, srht
 
 
 
@@ -111,7 +111,8 @@ class RandomEmbedding(Operator):
 
 class SrhtEmbedding(RandomEmbedding):
 
-    def __init__(self, source=None, sqrt_product=None, options=None):
+    def __init__(self, source=None, sqrt_product=None, options=None,
+                 range_id=None):
     
         assert not(source is None) or not(sqrt_product is None)
         if options is None: options = dict()
@@ -122,7 +123,7 @@ class SrhtEmbedding(RandomEmbedding):
         if sqrt_product is None:
             self.sqrt_product = IdentityOperator(source)
         self.source = self.sqrt_product.source
-        self.range = NumpyVectorSpace(self.compute_dim())
+        self.range = NumpyVectorSpace(self.compute_dim(), id=range_id)
         self._matrix = None
         self._random_matrix = None
         self.linear = True
@@ -195,7 +196,8 @@ class SrhtEmbedding(RandomEmbedding):
 
 class GaussianEmbedding(RandomEmbedding):
     
-    def __init__(self, source=None, sqrt_product=None, options=None):
+    def __init__(self, source=None, sqrt_product=None, options=None,
+                 range_id=None):
     
         assert not(source is None) or not(sqrt_product is None)
         if options is None: options = dict()
@@ -206,7 +208,7 @@ class GaussianEmbedding(RandomEmbedding):
         if sqrt_product is None:
             self.sqrt_product = IdentityOperator(source)
         self.source = self.sqrt_product.source
-        self.range = NumpyVectorSpace(self.compute_dim())
+        self.range = NumpyVectorSpace(self.compute_dim(), id=range_id)
         self._matrix = None
         self._random_matrix = self._compute_random_matrix()
         self.linear = True
@@ -257,7 +259,8 @@ class GaussianEmbedding(RandomEmbedding):
         
 class IdentityEmbedding(RandomEmbedding):
 
-    def __init__(self, source=None, sqrt_product=None, options=None):
+    def __init__(self, source=None, sqrt_product=None, options=None,
+                 range_id=None):
         
         assert not(source is None) or not(sqrt_product is None)
         if options is None: options = dict()
@@ -266,7 +269,7 @@ class IdentityEmbedding(RandomEmbedding):
         if sqrt_product is None:
             self.sqrt_product = IdentityOperator(source)
         self.source = self.sqrt_product.source
-        self.range = NumpyVectorSpace(self.compute_dim())
+        self.range = NumpyVectorSpace(self.compute_dim(), id=range_id)
         self._matrix = None
         self._random_matrix = self._compute_random_matrix()
         self.linear = True
@@ -303,14 +306,14 @@ class EmbeddingVectorized(RandomEmbedding):
     Sketch a whole vector array by vectorizing it then applying a gaussian
     sketch.
     """
-    def __init__(self, source, n_vectors, options=None):
+    def __init__(self, source, n_vectors, options=None, range_id=None):
         
         if options is None: options = dict()
         if options.get('seed') is None:
             options['seed'] = np.random.randint(0, high=2**32-1)
         self.__auto_init(locals())
         self.options = FrozenDict(options)
-        self.range = NumpyVectorSpace(self.compute_dim()) 
+        self.range = NumpyVectorSpace(self.compute_dim(), id=range_id) 
         self._matrix = None
         self._random_matrix = self._compute_random_matrix()
         self.linear = True
