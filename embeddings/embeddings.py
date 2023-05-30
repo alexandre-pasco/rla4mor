@@ -103,7 +103,14 @@ class RandomEmbedding(Operator):
         if seed is None:
             seed = np.random.randint(0, high=2**32-1)
         self._seed = seed
+        self.update()
         
+    def update(self):
+        if not(self._random_matrix is None):
+            self._random_matrix = self._compute_random_matrix()
+    
+        if not(self._matrix is None):
+            self._matrix = self._compute_matrix()
     
     def as_range_array(self):
         result = self.range.from_numpy(self.get_matrix().T)
@@ -134,6 +141,9 @@ class SrhtEmbedding(RandomEmbedding):
         self._matrix = None
         self._random_matrix = None
         self.linear = True
+
+    def update(self):
+        pass
 
     def compute_dim(self):
         opt = self.options
@@ -243,9 +253,6 @@ class GaussianEmbedding(RandomEmbedding):
         op = NumpyMatrixOperator(gauss, source_id=Q.range.id, range_id=self.range.id)
         return op.apply(Q.apply(U))
     
-    
-    def update(self):
-        self._random_matrix = self._compute_random_matrix()
     
     
     def _compute_matrix(self):
