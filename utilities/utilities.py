@@ -8,9 +8,10 @@ Created on Tue Apr 18 15:48:03 2023
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
-from pymor.operators.constructions import Operator, LincombOperator
+from pymor.operators.constructions import Operator, LincombOperator, ZeroOperator
 from pymor.operators.numpy import NumpyMatrixOperator
-
+from pymor.vectorarrays.numpy import NumpyVectorArray, NumpyVectorSpace
+from pymor.algorithms.to_matrix import to_matrix
 
 class ScipyLinearOperator(LinearOperator):
     """
@@ -67,5 +68,31 @@ def stack_lincomb_operators(operators):
     return result
 
 
+
+def concatenate_operators(operators, axis=0):
+    op0 = operators[0]
+    
+    if all(isinstance(op, LincombOperator) for op in operators):
+        n_op = len(op0.operators)
+        new_operators = []
+        for i in range(n_op):
+            new_mat = np.concatenate([to_matrix(op.operators[i]) for op in operators], axis=axis)
+            new_op = op0.operators[i].with_(matrix=new_mat)
+            new_operators.append(new_op)
+        result = op0.with_(operators=new_operators)
+    
+    elif all(isinstance(op, ZeroOperator) for op in operators):
+        source = NumpyVectorSpace(np.sum([op.source.dim for op in operators]))
+        result = ZeroOperator(op0.range, source)
+    
+    elif all(not(op.parametric) for op in operators):
+        new_mat = np.concatenate([to_matrix(op) for op in operators], axis=axis)
+        new_op = op0.with_(matrix=new_mat)
+        result = new_op
+    
+    else:
+        TypeError("Operators to concatenate are of different types")
+    
+    return result
 
 
