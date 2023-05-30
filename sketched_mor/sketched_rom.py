@@ -12,79 +12,80 @@ from pymor.algorithms.to_matrix import to_matrix
 from pymor.algorithms.gram_schmidt import gram_schmidt
 from pymor.core.base import BasicObject, ImmutableObject
 from pymor.models.basic import StationaryModel
-from pymor.operators.constructions import IdentityOperator, LincombOperator, InverseOperator, ConcatenationOperator, VectorArrayOperator
+from pymor.operators.constructions import Operator, ZeroOperator ,IdentityOperator, LincombOperator, InverseOperator, ConcatenationOperator, VectorArrayOperator
 from pymor.parameters.functionals import ProjectionParameterFunctional
 from pymor.parameters.base import Mu
-from pymor.vectorarrays.numpy import NumpyVectorArray
+from pymor.vectorarrays.numpy import NumpyVectorArray, NumpyVectorSpace
 from pymor.operators.numpy import NumpyMatrixOperator
+from pymor.reductors.residual import ResidualOperator
 
 from pymor.algorithms.projection import project
 from embeddings.embeddings import IdentityEmbedding
+from utilities.utilities import concatenate_operators
 
-
-class SketchedRom(BasicObject):
+class SketchedReductor(BasicObject):
     
-    
-    def __init__(self, fom, embedding=None, product=None, save_rb=True, log_level=20):
+    def __init__(self, fom, embedding_primal=None, embedding_online=None, 
+                 product=None, save_rb=True, orthonormalize=True, 
+                 log_level=20, rom_log_level=30):
         self.__auto_init(locals())
         self.logger.setLevel(log_level)
         self.mu_basis = []
         if product is None:
             self.product = IdentityOperator(fom.solution_space)
-        if embedding is None:
-            self.embedding = IdentityEmbedding(fom.solution_space)
+        if embedding_primal is None:
+            self.embedding_primal = IdentityEmbedding(fom.solution_space)
+        if embedding_online is None:
+            self.embedding_online = IdentityEmbedding(embedding_primal.range)
             
-        self.srb = self.embedding.range.empty()
+        self.srb = self.embedding_primal.range.empty()
         self.rb = fom.solution_space.empty()
-        self.srhs = None
-        self.slhs = None
         self.output_functional = None
+        self.rom = None
+        # self.srhs = None
+        # self.slhs = None
+        self.residual = None
         
-    def extend_basis(self, U, mus, check_mus=True):
-        if isinstance(mus, Mu):
-            mus = [mus]
+        
+
+    def extend_basis(self, U, **kwargs):
+        
         if self.save_rb:
             self.rb.append(U)
-        if check_mus:
-            assert all([mu not in self.mu_basis for mu in mus])
-        for mu in mus:
-            self.mu_basis.append(mu)
         
         # project the output_functional
         output_proj = project(self.fom.output_functional, None, U)
-        if not(isinstance(output_proj, LincombOperator)):
-            output_proj = LincombOperator([output_proj], [1])
-        if self.output_functional is None:
-            self.output_functional = output_proj
-        else:
-            new_operators = [
-                NumpyMatrixOperator(np.hstack((to_matrix(o1), to_matrix(o2)))) 
-                for o1,o2 in zip(self.output_functional.operators, output_proj.operators) ] 
-            self.output_functional = output_proj.with_(operators=new_operators)
-        
-        # sketchthe rhs if not done
-        s = self.embedding
-        if self.srhs is None:
-            op = s @ InverseOperator(self.product) @ self.fom.rhs
-            self.srhs = contract(expand(op)).with_(range_id=s.range.id)
+        if not(self.output_functional is None):
+            output_proj = concatenate_operators((self.output_functional, output_proj), axis=1)
+        self.output_functional = output_proj
         
         # sketch the basis
+        s = self.embedding_primal
         su = s.apply(U)
         self.srb.append(su)
-        
-        # sketch the projected operator
+    
+        # sketch the residual
         op = s @ InverseOperator(self.product) @ self.fom.operator
         sop = project(op, None, U)
-        if self.slhs is None:
-            self.slhs = sop
-        else:
-            # hstack the previous soperator with the newly computed
-            new_operators = [
-                NumpyMatrixOperator(np.hstack((o1.matrix, o2.matrix)), range_id=o1.range.id) 
-                for o1,o2 in zip(self.slhs.operators, sop.operators) ] 
-            self.slhs = self.slhs.with_(operators=new_operators)
         
-    def orthonormalize_basis(self, T=None, offset=0, return_T=False):
+        if self.residual is None:
+            srhs = s @ InverseOperator(self.product) @ self.fom.rhs
+            srhs = contract(expand(srhs))
+            residual_operator = ResidualOperator(sop, srhs)
+        
+        else:
+            slhs = concatenate_operators((self.residual.operator, sop), axis=1)
+            residual_operator = self.residual.with_(operator=slhs)
+        
+        self.residual = residual_operator
+        
+        # orthonormalise the basis and apply the transformation to the residual
+        if self.orthonormalize:
+            self.orthonormalize_basis(offset=len(self.srb)-len(U))
+        
+
+
+    def orthonormalize_basis(self, offset=0, T=None, return_T=False):
     
         if T is None:
             Q, R = gram_schmidt(self.srb, offset=offset, return_R=True)
@@ -96,9 +97,9 @@ class SketchedRom(BasicObject):
             self.rb = self.rb.lincomb(T.T)
             
         self.srb = Q
-        slhs = contract(expand(self.slhs @ NumpyMatrixOperator(T)))
-        self.slhs = slhs.with_(
-            operators=[o.with_(range_id=self.slhs.range.id) for o in slhs.operators])
+        
+        slhs = project(self.residual.operator, None, self.residual.source.from_numpy(T.T))
+        self.residual = self.residual.with_(operator=slhs)
         
         result = None
         if return_T:
@@ -112,11 +113,11 @@ class SketchedRom(BasicObject):
             mus = [mus]
         ls = False
         if projection == 'galerkin':
-            Ar = project(self.slhs, self.srb, None)
-            br = project(self.srhs, self.srb, None)
+            Ar = project(self.residual.operator, self.srb, None)
+            br = project(self.residual.rhs, self.srb, None)
         elif projection == 'minres':
-            Ar = self.slhs
-            br = self.srhs
+            Ar = self.residual.operator
+            br = self.residual.rhs
             ls = True
         
         coefs = Ar.source.empty(len(mus))
@@ -128,12 +129,42 @@ class SketchedRom(BasicObject):
         return coefs
     
     
-    def from_sketch(self, srom, seed=None):
+    def sketch_residual(self, embedding=None):
         
-        self.embedding.set_seed(seed)
-        s = self.embedding
-        self.srb = s.apply(srom.srb)
-        self.slhs = contract(expand(s @ srom.slhs))
-        self.srhs = contract(expand(s @ srom.srhs))
+        if embedding is None:
+            embedding = self.embedding_online
+            
+        lhs = contract(expand(embedding @ self.residual.operator))
+        rhs = contract(expand(embedding @ self.residual.rhs))
+        residual = ResidualOperator(lhs, rhs)
+        
+        return residual
+        
     
-                
+    def reduce(self, seed=None, rom_log_levels=30):
+        
+        self.embedding_online.set_seed(seed)
+        error_estimator = ResidualErrorEstimator(self.sketch_residual())
+        
+        # Build the galerkin system
+        reduced_lhs = project(self.residual.operator, self.srb, None)
+        reduced_rhs = project(self.residual.rhs, self.srb, None)
+        
+        
+        rom = StationaryModel(reduced_lhs, reduced_rhs, self.output_functional, 
+                              error_estimator=error_estimator)
+        rom.logger.setLevel(self.rom_log_level)
+        return rom
+    
+
+class ResidualErrorEstimator(ImmutableObject):
+    
+    def __init__(self, residual_operator, name=None):
+        self.__auto_init(locals())
+        self.logger.setLevel(20)
+        
+    def estimate_error(self, U, mu, m=None):
+        residual = self.residual_operator.apply(U, mu)
+        error = residual.norm()
+        return error
+
