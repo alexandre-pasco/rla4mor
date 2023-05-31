@@ -14,7 +14,6 @@ from sksparse.cholmod import cholesky
 from scikits import umfpack
 
 
-
 class CholeskyOperator(Operator):
     """
     
@@ -191,3 +190,9 @@ class InverseLuOperator(Operator):
             sol = self.factorization(umfpack.UMFPACK_At, self.factorization.mtx, x[i])
             result[i] = sol
         return result
+    
+    
+    
+    
+    
+    
