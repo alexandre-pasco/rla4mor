@@ -10,6 +10,7 @@ import numpy as np
 from scipy.sparse.linalg import splu
 from scipy.sparse import csc_matrix
 from pymor.operators.constructions import Operator
+from pymor.operators.numpy import NumpyMatrixOperator
 from sksparse.cholmod import cholesky
 from scikits import umfpack
 
@@ -139,7 +140,7 @@ class InverseLuOperator(Operator):
         if factorization is None:
             if use_umfpack:
                 if not (type(matrix) is csc_matrix):
-                    Warning("operator.matrix is not in csc_format.")
+                    self.logger.warning("operator.matrix is not in csc_format.")
                     matrix = csc_matrix(matrix)
                 if matrix.dtype == complex:
                     family = 'zi'
@@ -192,7 +193,26 @@ class InverseLuOperator(Operator):
         return result
     
     
+class LsOperator(Operator):
     
+    def __init__(self, operator):
+        self.__auto_init(locals())
+        self.source = operator.source
+        self.range = operator.range
+        self.linear = operator.linear
     
+    def apply(self, U, mu=None, **kwargs):
+        return self.operator.apply(U, mu, **kwargs)
     
+    def apply_adjoint(self, U, mu=None, **kwargs):
+        return self.operator.apply_adjoint(U, mu, **kwargs)
+    
+    def apply_inverse(self, U, mu=None, **kwargs):
+        return self.operator.apply_inverse(U, mu, least_squares=True, **kwargs)
+    
+    def apply_inverse_adjoint(self, U, mu=None, **kwargs):
+        return self.operator.apply_inverse_adjoint(U, mu, least_squares=True, **kwargs)
+    
+    def assemble(self, mu=None):
+        return self.operator.assemble(mu)
     
