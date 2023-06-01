@@ -8,26 +8,23 @@ Created on Sat May 27 14:48:21 2023
 
 import numpy as np
 from pymor.algorithms.simplify import expand, contract
-from pymor.algorithms.to_matrix import to_matrix
 from pymor.algorithms.gram_schmidt import gram_schmidt
 from pymor.core.base import BasicObject, ImmutableObject
 from pymor.models.basic import StationaryModel
-from pymor.operators.constructions import Operator, ZeroOperator ,IdentityOperator, LincombOperator, InverseOperator, ConcatenationOperator, VectorArrayOperator
-from pymor.parameters.functionals import ProjectionParameterFunctional
-from pymor.parameters.base import Mu
-from pymor.vectorarrays.numpy import NumpyVectorArray, NumpyVectorSpace
-from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.reductors.residual import ResidualOperator
+from pymor.operators.constructions import IdentityOperator, InverseOperator
+from pymor.reductors.residual import ResidualOperator, ResidualReductor
 
 from pymor.algorithms.projection import project
 from embeddings.embeddings import IdentityEmbedding
+from embeddings.other_operators import LsOperator
 from utilities.utilities import concatenate_operators
 
 class SketchedReductor(BasicObject):
     
     def __init__(self, fom, embedding_primal=None, embedding_online=None, 
                  product=None, save_rb=True, orthonormalize=True, 
-                 log_level=20, rom_log_level=30):
+                 projection='galerkin', log_level=20):
+        assert projection in ('galerkin', 'minres')
         self.__auto_init(locals())
         self.logger.setLevel(log_level)
         self.mu_basis = []
@@ -40,11 +37,10 @@ class SketchedReductor(BasicObject):
             
         self.srb = self.embedding_primal.range.empty()
         self.rb = fom.solution_space.empty()
+        self.residual = None
         self.output_functional = None
         self.rom = None
-        # self.srhs = None
-        # self.slhs = None
-        self.residual = None
+        
         
         
 
@@ -85,10 +81,11 @@ class SketchedReductor(BasicObject):
         
 
 
-    def orthonormalize_basis(self, offset=0, T=None, return_T=False):
+    def orthonormalize_basis(self, offset=0, T=None, return_T=False, **kwargs):
     
+        self.logger.info("Orthonormalize the sketched basis")
         if T is None:
-            Q, R = gram_schmidt(self.srb, offset=offset, return_R=True)
+            Q, R = gram_schmidt(self.srb, offset=offset, return_R=True, **kwargs)
             T = np.linalg.pinv(R)
         else:
             Q = self.srb.lincomb(T.T)
@@ -98,6 +95,7 @@ class SketchedReductor(BasicObject):
             
         self.srb = Q
         
+        self.logger.info("Apply orthonormalization matrix to the residual")
         slhs = project(self.residual.operator, None, self.residual.source.from_numpy(T.T))
         self.residual = self.residual.with_(operator=slhs)
         
@@ -106,30 +104,31 @@ class SketchedReductor(BasicObject):
             result = T
         
         return result
+    
 
-    
-    def solve_rb(self, mus, projection):
-        if not isinstance(mus, (list, np.ndarray)):
-            mus = [mus]
-        ls = False
-        if projection == 'galerkin':
-            Ar = project(self.residual.operator, self.srb, None)
-            br = project(self.residual.rhs, self.srb, None)
-        elif projection == 'minres':
-            Ar = self.residual.operator
-            br = self.residual.rhs
-            ls = True
+    def reduce(self, embedding=None, seed=None, rom_log_level=30):
         
-        coefs = Ar.source.empty(len(mus))
-        for mu in mus:
-            # compute the reduced solutions
-            u = Ar.apply_inverse(br.as_range_array(mu), mu, least_squares=ls)
-            coefs.append(u)
+        if len(self.srb) == 0:
+            rom = self._reduce_empty()
         
-        return coefs
+        elif self.projection == 'galerkin':
+            if embedding is None:
+                embedding = self.embedding_online.with_(_seed=seed)
+            rom = self._reduce_galerkin(embedding)
+        
+        elif self.projection == 'minres':
+            if not(hasattr(seed, '__len__')):
+                seed = (seed, seed)
+            if embedding in (None, (None, None)) :
+                embedding = (self.embedding_online.with_(_seed=seed[0]),
+                             self.embedding_online.with_(_seed=seed[1]))
+            rom = self._reduce_minres(embedding)
+        
+        rom.logger.setLevel(rom_log_level)
+        
+        return rom
     
-    
-    def sketch_residual(self, embedding=None):
+    def _sketch_residual(self, embedding=None):
         
         if embedding is None:
             embedding = self.embedding_online
@@ -139,32 +138,71 @@ class SketchedReductor(BasicObject):
         residual = ResidualOperator(lhs, rhs)
         
         return residual
+
+    def _reduce_galerkin(self, embedding):
         
-    
-    def reduce(self, seed=None, rom_log_levels=30):
+        # error estimator
+        sketched_residual = self._sketch_residual(embedding)
+        error_estimator = ResidualErrorEstimator(sketched_residual)
         
-        self.embedding_online.set_seed(seed)
-        error_estimator = ResidualErrorEstimator(self.sketch_residual())
-        
-        # Build the galerkin system
+        # galerkin system
         reduced_lhs = project(self.residual.operator, self.srb, None)
         reduced_rhs = project(self.residual.rhs, self.srb, None)
-        
-        
+    
+        # rom
         rom = StationaryModel(reduced_lhs, reduced_rhs, self.output_functional, 
                               error_estimator=error_estimator)
-        rom.logger.setLevel(self.rom_log_level)
+        
         return rom
-    
+
+    def _reduce_minres(self, embedding):
+        
+        # minres system
+        op = self._sketch_residual(embedding[0])
+        lhs = LsOperator(op.operator)
+        rhs = op.rhs
+        
+        # error estimator
+        sketched_residual = self._sketch_residual(embedding[1])
+        error_estimator = ResidualErrorEstimator(sketched_residual)
+
+        # rom
+        rom = StationaryModel(lhs, rhs, self.output_functional, 
+                              error_estimator=error_estimator)
+        
+        # TO DO ?: add self.rom = rom ? 
+        
+        return rom
+
+    def _reduce_empty(self):
+        # reduced system
+        lhs = project(self.fom.operator, self.rb, self.rb)
+        rhs = project(self.fom.rhs, self.rb, None)
+        
+        # error estimator
+        residual = ResidualReductor(
+            self.rb, self.fom.operator, self.fom.rhs, 
+            product=self.product, riesz_representatives=True
+            ).reduce()
+        error_estimator = ResidualErrorEstimator(residual)
+        
+        # output_functional
+        output_functional = project(self.fom.output_functional, None, self.rb)
+        
+        # rom
+        rom = StationaryModel(lhs, rhs, output_functional, 
+                              error_estimator=error_estimator)
+
+        return rom
 
 class ResidualErrorEstimator(ImmutableObject):
     
-    def __init__(self, residual_operator, name=None):
+    def __init__(self, operator, name=None):
         self.__auto_init(locals())
         self.logger.setLevel(20)
         
     def estimate_error(self, U, mu, m=None):
-        residual = self.residual_operator.apply(U, mu)
+        residual = self.operator.apply(U, mu)
         error = residual.norm()
         return error
 
