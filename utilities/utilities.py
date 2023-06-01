@@ -8,9 +8,9 @@ Created on Tue Apr 18 15:48:03 2023
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
-from pymor.operators.constructions import Operator, LincombOperator, ZeroOperator
+from pymor.operators.constructions import LincombOperator, ZeroOperator
 from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.vectorarrays.numpy import NumpyVectorArray, NumpyVectorSpace
+from pymor.vectorarrays.numpy import NumpyVectorSpace
 from pymor.algorithms.to_matrix import to_matrix
 
 class ScipyLinearOperator(LinearOperator):
