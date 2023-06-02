@@ -155,7 +155,7 @@ def srht(x, k, seed=None, nthreads=4):
     assert x.ndim <= 2
     y = x.copy()
     if x.ndim == 1: 
-        y = y.reshape(-1,1)
+        y = y.reshape(1,-1)
         
     n = y.shape[1]
     d = int(np.ceil(np.log2(n)))
@@ -168,7 +168,7 @@ def srht(x, k, seed=None, nthreads=4):
     # Applying the inplace Fast Hadamard Transform
     y = fht_oop(y)
     # sampling and rescaling
-    y = np.sqrt(n/k) * y[:, sampling]
+    y = np.sqrt( (2**d)/k ) * y[:, sampling]
     
     # reshape to the same ndim as x if necessary
     if x.ndim == 1:
