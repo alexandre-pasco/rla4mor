@@ -22,7 +22,7 @@ from utilities.utilities import concatenate_operators
 class SketchedReductor(BasicObject):
     
     def __init__(self, fom, embedding_primal=None, embedding_online=None, 
-                 product=None, save_rb=True, orthonormalize=True, 
+                 product=None, inverse_product=None, save_rb=True, orthonormalize=True, 
                  projection='galerkin', log_level=20):
         assert projection in ('galerkin', 'minres')
         self.__auto_init(locals())
@@ -30,6 +30,8 @@ class SketchedReductor(BasicObject):
         self.mu_basis = []
         if product is None:
             self.product = IdentityOperator(fom.solution_space)
+        if inverse_product is None:
+            self.inverse_product = InverseOperator(product)
         if embedding_primal is None:
             self.embedding_primal = IdentityEmbedding(fom.solution_space)
         if embedding_online is None:
@@ -50,22 +52,25 @@ class SketchedReductor(BasicObject):
             self.rb.append(U)
         
         # project the output_functional
+        self.logger.info("Projection the output functional")
         output_proj = project(self.fom.output_functional, None, U)
         if not(self.output_functional is None):
             output_proj = concatenate_operators((self.output_functional, output_proj), axis=1)
         self.output_functional = output_proj
         
         # sketch the basis
+        self.logger.info("Sketch the basis")
         s = self.embedding_primal
         su = s.apply(U)
         self.srb.append(su)
     
         # sketch the residual
-        op = s @ InverseOperator(self.product) @ self.fom.operator
+        self.logger.info("Sketch the residual")
+        op = s @ self.inverse_product @ self.fom.operator
         sop = project(op, None, U)
         
         if self.residual is None:
-            srhs = s @ InverseOperator(self.product) @ self.fom.rhs
+            srhs = s @ self.inverse_product @ self.fom.rhs
             srhs = contract(expand(srhs))
             residual_operator = ResidualOperator(sop, srhs)
         
@@ -75,7 +80,8 @@ class SketchedReductor(BasicObject):
         
         self.residual = residual_operator
         
-        # orthonormalise the basis and apply the transformation to the residual
+        # orthonormalize the basis and apply the transformation to the residual
+        self.logger.info("Orthonormalize the basis and apply the transformation to the residual")
         if self.orthonormalize:
             self.orthonormalize_basis(offset=len(self.srb)-len(U))
         
