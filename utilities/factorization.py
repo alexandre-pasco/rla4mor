@@ -105,8 +105,8 @@ class InverseLuOperator(Operator):
     def __init__(self, operator, factorization=None, symetric=False, **kwargs):
         self.__auto_init(locals())
         self.linear = True
-        self.source = operator.source
-        self.range = operator.range
+        self.source = operator.range
+        self.range = operator.source
         if factorization is None:
             if symetric:
                 self.factorization = splu_symetric(operator.matrix)
@@ -115,15 +115,19 @@ class InverseLuOperator(Operator):
 
 
     def apply(self, U, mu=None):
-        assert U in self.range
+        assert U in self.source
+        V = U.to_numpy()
+        ptype = np.promote_types(self.operator.matrix.dtype, V.dtype)
         slu = self.factorization
-        result = slu.solve(U.to_numpy().T)
+        result = slu.solve(V.T).astype(ptype)
         return self.source.from_numpy(result.T)
     
     def apply_adjoint(self, U, mu=None):
-        assert U in self.range
+        assert U in self.source
+        V = U.to_numpy()
+        ptype = np.promote_types(self.operator.matrix.dtype, V.dtype)
         slu = self.factorization
-        result = slu.solve(U.to_numpy().T, trans='H')
+        result = slu.solve(V.T, trans='H').astype(ptype)
         return self.source.from_numpy(result.T)
 
     def apply_inverse(self, U, mu=None):
