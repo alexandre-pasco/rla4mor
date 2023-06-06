@@ -15,7 +15,7 @@ from pymor.operators.constructions import Operator, IdentityOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from .srht import fht_oop, srht
+from rla.srht import fht_oop, srht
 
 
 

@@ -17,7 +17,7 @@ from pymor.parameters.base import Mu
 
 from pymor.algorithms.projection import project
 
-from embeddings.embeddings import IdentityEmbedding
+from rla.embeddings import IdentityEmbedding
 from preconditioners.preconditioned_rom import PreconditionedRom
 
 

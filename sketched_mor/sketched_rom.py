@@ -15,7 +15,7 @@ from pymor.operators.constructions import IdentityOperator, InverseOperator
 from pymor.reductors.residual import ResidualOperator, ResidualReductor
 from pymor.algorithms.projection import project
 
-from embeddings.embeddings import IdentityEmbedding
+from rla.embeddings import IdentityEmbedding
 from utilities.other_operators import LsOperator
 from utilities.utilities import concatenate_operators
 
