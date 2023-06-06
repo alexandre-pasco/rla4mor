@@ -55,7 +55,7 @@ class PreconditionedReductor(BasicObject):
         The key 'rhs' contains an ortho basis of fom.rhs.
     product : Operator
         A symetric positive definite operator, encoding the inner product.
-    inv_product: Operator
+    inverse_product: Operator
         The inverse of the product operator.
     stable_galerkin : bool, optional
         If True, uses the intermediate basis projection to improve stability of
@@ -81,7 +81,7 @@ class PreconditionedReductor(BasicObject):
     def __init__(self, fom, reduced_basis, source_bases, range_bases,
                  source_embeddings, range_embeddings, vec_embeddings,
                  residual_embedding, intermediate_bases=None, product=None, 
-                 inv_product=None, stable_galerkin=True, dtype=float, log_level=20):
+                 inverse_product=None, stable_galerkin=True, dtype=float, log_level=20):
         
         assert source_bases.keys() == range_bases.keys()
         self.__auto_init(locals())
@@ -89,8 +89,8 @@ class PreconditionedReductor(BasicObject):
         self.mu_added = []
         if product is None:
             self.product = IdentityOperator(fom.solution_space)
-        if inv_product is None:
-            self.inv_product = InverseOperator(self.product)
+        if inverse_product is None:
+            self.inverse_product = InverseOperator(self.product)
         
         if intermediate_bases is None:
             self.stable_galerkin = False
@@ -158,7 +158,7 @@ class PreconditionedReductor(BasicObject):
         
         if Vs is None:
             op = project(operator.H, None, Vr)
-            new_op = contract(expand(self.source_embeddings[key] @ self.inv_product @ op)).H
+            new_op = contract(expand(self.source_embeddings[key] @ self.inverse_product @ op)).H
             
             # optional : simplify the conjugate conjugate functionals
             if isinstance(new_op, LincombOperator):
@@ -336,6 +336,14 @@ class PreconditionedReductor(BasicObject):
         """
         with self.logger.block(f"Adding preconditioner at {mu}"):
             
+            # If the factorization is not kept by default, 
+            try :
+                opt = P.operator.solver_options().get('inverse').copy()
+                if not opt['keep_factorization']:
+                    opt['keep_factorization'] = True
+                    P = P.with_(operator=P.operator.with_(solver_options=opt))
+            except: pass
+                    
             for key in self.hs_estimators_lhs.keys():
                 op = self.sketch_operator(self.product @ P @ self.fom.operator, key)
                 self.hs_estimators_lhs[key].append(op)
