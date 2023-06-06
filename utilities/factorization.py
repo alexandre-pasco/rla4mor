@@ -14,10 +14,16 @@ from pymor.operators.interface import Operator
 
 
 
+def splu_symetric(matrix):
+    factor = splu(
+        matrix, permc_spec='MMD_AT_PLUS_A', 
+        diag_pivot_thresh=0, options={'SymmetricMode':True}
+        )
+    return factor
+
 def lu_to_cholesky(matrix=None, factor=None):
     """
     
-
     Parameters
     ----------
     matrix : csc_matrix, optional
@@ -34,10 +40,7 @@ def lu_to_cholesky(matrix=None, factor=None):
     """
     if factor is None:
         assert not(matrix is None)
-        factor = splu(
-            matrix, permc_spec='MMD_AT_PLUS_A', 
-            diag_pivot_thresh=0, options={'SymmetricMode':True}
-            )
+        factor = splu_symetric(matrix)
     
     n = factor.perm_c.shape[0]
     
@@ -92,16 +95,23 @@ class InverseLuOperator(Operator):
         csc_format
     factorization : scipy.sparse.linalg.SuperLU or scikits.umfpack.umfpack.UmfpackContext, 
         depending if umfpack is used. 
+    symetric : bool, optional.
+        If True, the operator to factorized is considered to be symetric 
+        positive definite. default is False
     kwargs : dict
         keyword arguments for the factorizing with splu.
         
     """
-    def __init__(self, operator, factorization=None, **kwargs):
+    def __init__(self, operator, factorization=None, symetric=False, **kwargs):
         self.__auto_init(locals())
         self.linear = True
         self.source = operator.source
         self.range = operator.range
-        self.factorization = splu(self.matrix, **kwargs)
+        if factorization is None:
+            if symetric:
+                self.factorization = splu_symetric(operator.matrix)
+            else:
+                self.factorization = splu(operator.matrix, **kwargs)
 
 
     def apply(self, U, mu=None):
