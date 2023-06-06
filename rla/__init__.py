@@ -8,7 +8,8 @@ Created on Sat May 27 14:52:03 2023
 
 from pymor.algorithms.rules import match_class
 from pymor.algorithms.simplify import ExpandRules, ContractRules
-from utilities.other_operators import InverseLuOperator, CholmodOperator, UmfInverseLuOperator, LsOperator
+from utilities.factorization import InverseLuOperator, CholmodOperator, UmfInverseLuOperator
+from utilities.other_operators import LsOperator
 from rla.embeddings import RandomEmbedding
 
 @match_class(RandomEmbedding, InverseLuOperator, CholmodOperator, UmfInverseLuOperator, LsOperator)
