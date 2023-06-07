@@ -102,17 +102,18 @@ class InverseLuOperator(Operator):
         keyword arguments for the factorizing with splu.
         
     """
-    def __init__(self, operator, factorization=None, symetric=False, **kwargs):
-        self.__auto_init(locals())
+    def __init__(self, operator, factorization=None, symetric=False, splu_kwargs=None):
         self.linear = True
         self.source = operator.range
         self.range = operator.source
+        if splu_kwargs is None:
+            splu_kwargs = dict()
         if factorization is None:
             if symetric:
                 self.factorization = splu_symetric(operator.matrix)
             else:
-                self.factorization = splu(operator.matrix, **kwargs)
-
+                self.factorization = splu(operator.matrix, **splu_kwargs)
+        self.__auto_init(locals())
 
     def apply(self, U, mu=None):
         assert U in self.source

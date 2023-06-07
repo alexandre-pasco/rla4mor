@@ -101,9 +101,15 @@ class SketchedReductor(BasicObject):
             
         self.srb = Q
         
+        V = self.residual.source.from_numpy(T.T)
+        
         self.logger.info("Apply orthonormalization matrix to the residual")
-        slhs = project(self.residual.operator, None, self.residual.source.from_numpy(T.T))
+        slhs = project(self.residual.operator, None, V)
         self.residual = self.residual.with_(operator=slhs)
+        
+        self.logger.info("Apply orthonormalization matrix to the output")
+        self.output_functional = project(self.output_functional, None, V)
+        
         
         result = None
         if return_T:
