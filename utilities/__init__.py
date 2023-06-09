@@ -7,11 +7,12 @@ Created on Sat May 27 14:52:35 2023
 """
 
 
-from pymor.algorithms.rules import match_generic
+from pymor.algorithms.rules import match_generic, match_class
 from pymor.algorithms.projection import ProjectRules
+from pymor.algorithms.simplify import ExpandRules
 from pymor.core.exceptions import RuleNotMatchingError
 from pymor.vectorarrays.numpy import NumpyVectorSpace
-
+from pymor.operators.constructions import ConcatenationOperator, LincombOperator
 
 @match_generic(lambda op: op.linear and not op.parametric, 'linear and not parametric')
 def action_apply_basis_corrected(self, op):
@@ -40,5 +41,34 @@ def action_apply_basis_corrected(self, op):
             from pymor.operators.numpy import NumpyMatrixOperator
             return NumpyMatrixOperator(op.apply2(range_basis, source_basis), name=op.name)
 
+@match_class(ConcatenationOperator)
+def action_ConcatenationOperator_corrected(self, op):
+    op = self.replace_children(op)
+
+    # merge child ConcatenationOperators
+    if any(isinstance(o, ConcatenationOperator) for o in op.operators):
+        ops = []
+        for o in op.operators:
+            if isinstance(o, ConcatenationOperator):
+                ops.extend(o.operators)
+            else:
+                ops.append(o)
+        op = op.with_(operators=ops)
+
+    # expand concatenations with LincombOperators
+    if any(isinstance(o, LincombOperator) for o in op.operators):
+        i = next(iter(i for i, o in enumerate(op.operators) if isinstance(o, LincombOperator)))
+        left, right = op.operators[:i], op.operators[i+1:]
+        ops = [ConcatenationOperator(left + (o,) + right) for o in op.operators[i].operators]
+        op = op.operators[i].with_(operators=ops)
+
+        # there can still be LincombOperators within the summands so we recurse ..
+        op = self.apply(op)
+
+    return op
+
 
 ProjectRules.insert_rule(3, action_apply_basis_corrected)
+ExpandRules.insert_rule(1, action_ConcatenationOperator_corrected)
+
+
