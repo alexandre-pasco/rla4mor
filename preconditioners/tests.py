@@ -18,8 +18,8 @@ from pymor.parameters.base import Mu
 from pymor.parameters.functionals import ProjectionParameterFunctional
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from embeddings.embeddings import GaussianEmbedding, EmbeddingVectorized
-from embeddings.other_operators import CholeskyOperator
+from rla.embeddings import GaussianEmbedding, EmbeddingVectorized
+from utilities.factorization import operator_to_cholesky
 from preconditioners.preconditioned_reductor import PreconditionedReductor
 
 from pymor.core.logger import set_log_levels
@@ -36,7 +36,7 @@ mu_space = fom.parameters.space(0,1)
 lhs = fom.operator
 rhs = fom.rhs
 Ru = fom.h1_0_product
-Qu = CholeskyOperator(Ru)
+Qu = operator_to_cholesky(Ru)
 
 # %% Reduced basis
 

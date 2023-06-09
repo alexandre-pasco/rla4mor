@@ -6,7 +6,7 @@ Created on Tue May  9 09:42:21 2023
 @author: apasco
 """
 
-
+import numpy as np
 from pymor.algorithms.simplify import expand, contract
 from pymor.core.base import BasicObject, ImmutableObject
 from pymor.models.basic import StationaryModel
@@ -83,11 +83,30 @@ class PreconditionedRom(BasicObject):
                 
                 for coef in last_coefs:
                     # if the functional is not a product
-                    if isinstance(coef, ProjectionParameterFunctional):
+                    # try:
+                    #     if isinstance(coef, ProjectionParameterFunctional):
+                    #         new_coefs.append(coef.with_(size=n_p+1))
+                    #     # else if it is a product, the precond term must be the first
+                    #     else:
+                    #         new_factors = [f.with_(size=n_p+1) if f.parameter=='precond' else f 
+                    #                        for f in coef.factors]
+                    #         new_coefs.append(coef.with_(factors=new_factors))
+                    # except:
+                    #     new_coefs.append(coef)
+                    if not(coef.parametric):
+                        new_coefs.append(coef)
+                    elif isinstance(coef, ProjectionParameterFunctional):
                         new_coefs.append(coef.with_(size=n_p+1))
                     # else if it is a product, the precond term must be the first
                     else:
-                        new_factors = [coef.factors[0].with_(size=n_p+1)] + [f for f in coef.factors[1:]]
+                        new_factors = []
+                        for f in coef.factors:
+                            if np.isscalar(f):
+                                new_factors.append(f)
+                            elif f.parametric and f.parameter=='precond':
+                                new_factors.append(f.with_(size=n_p+1))
+                            else:
+                                new_factors.append(f)
                         new_coefs.append(coef.with_(factors=new_factors))
                 result = operator.with_(coefficients=new_coefs)
                 return result

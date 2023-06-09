@@ -123,7 +123,7 @@ class PreconditionedReductor(BasicObject):
         for key in source_bases.keys():
             self.hs_estimators_lhs[key] = []
             self.hs_estimators_rhs[key] = self.sketch_operator(
-                self.product, key).matrix.reshape(-1)
+                IdentityOperator(self.fom.solution_space), key).matrix.reshape(-1)
         
         # change default value to be able to use to_matrix
         if len(reduced_basis) >= as_array_max_length():
@@ -131,9 +131,9 @@ class PreconditionedReductor(BasicObject):
         
     def sketch_operator(self, operator, key):
         """
-        Compute the sketch of a U -> U' operator, and return the projected operator, 
-        which is a LincombOperator with a source dimension equal to 1. It will
-        be used to build the columns of the systems for the HS norm estimations.
+        Compute the sketch of a U -> U operator, and return the projected operator, 
+        with a source dimension equal to 1. It will be used to build the columns 
+        of the systems for the HS norm estimations.
 
         Parameters
         ----------
@@ -144,33 +144,30 @@ class PreconditionedReductor(BasicObject):
 
         Returns
         -------
-        result : LincombOperator
+        result : Operator
             The sketched operator, which is actually a linear form.
 
         """
         self.logger.info(f"sketching {operator.name} {key}")
         Vr = self.sketched_range_bases[key]
         Vs = self.sketched_source_bases[key]
-        Ru = self.product
         
         if Vr is None:
-            Vr = self.product.apply_inverse(self.range_embeddings[key].as_source_array())
+            Vr = self.inverse_product.apply(self.range_embeddings[key].as_source_array())
         
         if Vs is None:
-            op = project(operator.H, None, Vr)
+            op = project(operator.H, None, self.product.apply(Vr))
             new_op = contract(expand(self.source_embeddings[key] @ self.inverse_product @ op)).H
             
-            # optional : simplify the conjugate conjugate functionals
-            if isinstance(new_op, LincombOperator):
-                # we do not use the op.coefficients, because the ordering may have change
-                coefs = [c if np.isscalar(c) else c.functional.functional for c in new_op.coefficients]
-                new_op = new_op.with_(coefficients=coefs)
-            
-    
         else:
             # we want to first compute operator.H @ Vr
-            op = project(operator, Vr, None)
-            new_op = project(op, None, Vs)
+            new_op = project(operator.H, Vs, self.product.apply(Vr)).H
+        
+        # optional : simplify the conjugate conjugate functionals
+        if isinstance(new_op, LincombOperator):
+            # we do not use the op.coefficients, because the ordering may have change
+            coefs = [c if np.isscalar(c) else c.functional.functional for c in new_op.coefficients]
+            new_op = new_op.with_(coefficients=coefs)
         
         result = contract(expand(self.vec_embeddings[key] @ new_op))
         
@@ -337,15 +334,15 @@ class PreconditionedReductor(BasicObject):
         with self.logger.block(f"Adding preconditioner at {mu}"):
             
             # If the factorization is not kept by default, 
-            try :
-                opt = P.operator.solver_options().get('inverse').copy()
-                if not opt['keep_factorization']:
-                    opt['keep_factorization'] = True
-                    P = P.with_(operator=P.operator.with_(solver_options=opt))
-            except: pass
+            # try :
+            #     opt = P.operator.solver_options().get('inverse').copy()
+            #     if not opt['keep_factorization']:
+            #         opt['keep_factorization'] = True
+            #         P = P.with_(operator=P.operator.with_(solver_options=opt))
+            # except: pass
                     
             for key in self.hs_estimators_lhs.keys():
-                op = self.sketch_operator(self.product @ P @ self.fom.operator, key)
+                op = self.sketch_operator(P @ self.fom.operator, key)
                 self.hs_estimators_lhs[key].append(op)
             
             self.prom.add_preconditioner(P, mu)
