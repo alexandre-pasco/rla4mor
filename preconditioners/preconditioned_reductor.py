@@ -11,7 +11,7 @@ from pymor.algorithms.simplify import expand, contract
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
 from pymor.core.defaults import set_defaults
-from pymor.operators.constructions import IdentityOperator, InverseOperator, LincombOperator
+from pymor.operators.constructions import IdentityOperator, InverseOperator, LincombOperator, ConcatenationOperator
 from pymor.operators.interface import as_array_max_length
 from pymor.parameters.base import Mu
 
@@ -151,14 +151,21 @@ class PreconditionedReductor(BasicObject):
         self.logger.info(f"sketching {operator.name} {key}")
         Vr = self.sketched_range_bases[key]
         Vs = self.sketched_source_bases[key]
+        Rinv = self.inverse_product
         
         if Vr is None:
-            Vr = self.inverse_product.apply(self.range_embeddings[key].as_source_array())
+            Vr = Rinv.apply(self.range_embeddings[key].as_source_array())
         
         if Vs is None:
-            op = project(operator.H, None, self.product.apply(Vr))
-            new_op = contract(expand(self.source_embeddings[key] @ self.inverse_product @ op)).H
-            
+
+            if isinstance(operator, ConcatenationOperator):
+                V = operator.operators[0].apply_adjoint(self.product.apply(Vr))
+                op = self.source_embeddings[key] @ Rinv @ operator.with_(operators=operator.operators[1:]).H
+            else:
+                V = Vr
+                op = self.source_embeddings[key] @ Rinv @ operator.H @ self.product
+            new_op = project(op, None, V).H
+
         else:
             # we want to first compute operator.H @ Vr
             new_op = project(operator.H, Vs, self.product.apply(Vr)).H
