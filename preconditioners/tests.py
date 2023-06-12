@@ -24,63 +24,6 @@ from preconditioners.preconditioned_reductor import PreconditionedReductor
 
 from pymor.core.logger import set_log_levels
 
-# %%
-set_log_levels({'pymor':30})
-
-# %% Toy problem
-
-grid_shape = (2,2)
-problem = thermal_block_problem(grid_shape)
-fom, data = discretize_stationary_cg(problem, diameter=1/(2**6))
-mu_space = fom.parameters.space(0,1)
-lhs = fom.operator
-rhs = fom.rhs
-Ru = fom.h1_0_product
-Qu = operator_to_cholesky(Ru)
-
-# %% Reduced basis
-
-mu_basis = mu_space.sample_randomly(20)
-u_basis = lhs.source.empty()
-for mu in mu_basis:
-    u_basis.append(fom.solve(mu))
-u_basis = gram_schmidt(u_basis, Ru)
-
-# %% Preconditioner
-
-n_precond = 5
-mu_precond = mu_space.sample_randomly(n_precond)
-preconditioner = LincombOperator(
-    [InverseOperator(lhs.assemble(mu)) for mu in mu_precond],
-    [ProjectionParameterFunctional('precond', size=n_precond, index=i) for i in range(n_precond)]
-    )
-
-# %%
- 
-intermediate_bases = dict()
-intermediate_bases['lhs'] = estimate_image((lhs,), (), u_basis, product=Ru, riesz_representatives=True)
-intermediate_bases['rhs'] = estimate_image((), (rhs,), (), product=Ru, riesz_representatives=True)
-
-# embedding dimension
-k_precond = 10
-
-# for u_u
-sigma_u_u = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
-omega_u_u = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
-gamma_u_u = EmbeddingVectorized(omega_u_u.range, sigma_u_u.range.dim, {'range_dim':k_precond})
-
-# for u_ur 
-sigma_u_ur = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
-omega_u_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
-gamma_u_ur = EmbeddingVectorized(omega_u_ur.range, sigma_u_ur.range.dim, {'range_dim':k_precond})
-
-# for ur_ur
-sigma_ur_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
-omega_ur_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
-gamma_ur_ur = EmbeddingVectorized(omega_ur_ur.range, sigma_ur_ur.range.dim, {'range_dim':k_precond})
-
-# for residual
-theta = GaussianEmbedding(lhs.source, Qu, {'range_dim':200})
 
 
 # %% Tests related
@@ -402,6 +345,64 @@ def test_ur_ur(reductor):
 # %%
 
 if __name__ == '__main__':
+    
+    # %%
+    set_log_levels({'pymor':30})
+
+    # %% Toy problem
+
+    grid_shape = (2,2)
+    problem = thermal_block_problem(grid_shape)
+    fom, data = discretize_stationary_cg(problem, diameter=1/(2**5))
+    mu_space = fom.parameters.space(0,1)
+    lhs = fom.operator
+    rhs = fom.rhs
+    Ru = fom.h1_0_product
+    Qu = operator_to_cholesky(Ru)
+
+    # %% Reduced basis
+
+    mu_basis = mu_space.sample_randomly(20)
+    u_basis = lhs.source.empty()
+    for mu in mu_basis:
+        u_basis.append(fom.solve(mu))
+    u_basis = gram_schmidt(u_basis, Ru)
+
+    # %% Preconditioner
+
+    n_precond = 3
+    mu_precond = mu_space.sample_randomly(n_precond)
+    preconditioner = LincombOperator(
+        [InverseOperator(lhs.assemble(mu)) for mu in mu_precond],
+        [ProjectionParameterFunctional('precond', size=n_precond, index=i) for i in range(n_precond)]
+        )
+
+    # %%
+     
+    intermediate_bases = dict()
+    intermediate_bases['lhs'] = estimate_image((lhs,), (), u_basis, product=Ru, riesz_representatives=True)
+    intermediate_bases['rhs'] = estimate_image((), (rhs,), (), product=Ru, riesz_representatives=True)
+
+    # embedding dimension
+    k_precond = 10
+
+    # for u_u
+    sigma_u_u = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
+    omega_u_u = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
+    gamma_u_u = EmbeddingVectorized(omega_u_u.range, sigma_u_u.range.dim, {'range_dim':k_precond})
+
+    # for u_ur 
+    sigma_u_ur = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
+    omega_u_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
+    gamma_u_ur = EmbeddingVectorized(omega_u_ur.range, sigma_u_ur.range.dim, {'range_dim':k_precond})
+
+    # for ur_ur
+    sigma_ur_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
+    omega_ur_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
+    gamma_ur_ur = EmbeddingVectorized(omega_ur_ur.range, sigma_ur_ur.range.dim, {'range_dim':k_precond})
+
+    # for residual
+    theta = GaussianEmbedding(lhs.source, Qu, {'range_dim':200})
     
     print('Testing HS estimators:', end=' ')
     print(f'{test_hs_estimators()}')

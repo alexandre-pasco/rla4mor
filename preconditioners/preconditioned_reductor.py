@@ -152,23 +152,34 @@ class PreconditionedReductor(BasicObject):
         Vr = self.sketched_range_bases[key]
         Vs = self.sketched_source_bases[key]
         Rinv = self.inverse_product
+        R = self.product
+        S = self.source_embeddings[key]
         
         if Vr is None:
             Vr = Rinv.apply(self.range_embeddings[key].as_source_array())
-        
+            # Vr = self.range_embeddings[key].as_source_array()
+            
         if Vs is None:
-
+            
             if isinstance(operator, ConcatenationOperator):
-                V = operator.operators[0].apply_adjoint(self.product.apply(Vr))
-                op = self.source_embeddings[key] @ Rinv @ operator.with_(operators=operator.operators[1:]).H
+                op = ConcatenationOperator( 
+                (S, Rinv) + operator.H.operators + (R,))
             else:
-                V = Vr
-                op = self.source_embeddings[key] @ Rinv @ operator.H @ self.product
-            new_op = project(op, None, V).H
+                op = S @ Rinv @ operator.H @ R
+                
+            new_op = project(op, None, Vr).H            
+
+            # if isinstance(operator, ConcatenationOperator):
+            #     V = operator.operators[0].apply_adjoint(self.product.apply(Vr))
+            #     op = self.source_embeddings[key] @ Rinv @ operator.with_(operators=operator.operators[1:]).H
+            # else:
+            #     V = Vr
+            #     op = self.source_embeddings[key] @ Rinv @ operator.H @ self.product
+            # new_op = project(op, None, V).H
 
         else:
             # we want to first compute operator.H @ Vr
-            new_op = project(operator.H, Vs, self.product.apply(Vr)).H
+            new_op = project(operator.H, Vs, R.apply(Vr)).H
         
         # optional : simplify the conjugate conjugate functionals
         if isinstance(new_op, LincombOperator):
