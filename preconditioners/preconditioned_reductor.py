@@ -239,12 +239,23 @@ class PreconditionedReductor(BasicObject):
             Sketch of the identity operator.
 
         """
-        lst = self.hs_estimators_lhs.get(key)
-        assert not(lst is None) and len(lst)>0
-        h = self.hs_estimators_rhs[key]
-        W = np.zeros((lst[0].range.dim, len(lst)), dtype=self.dtype)
-        for i, column_op in enumerate(lst):
-            W[:,i] = column_op.assemble(mu).matrix.reshape(-1)
+        
+        if isinstance(key, (list, tuple)):
+            assert all(len(k)==2 for k in key)
+            W_lst, h_lst = [], []
+            for k, weight in key:
+                Wk, hk = self.assemble_hs_estimator(mu, k)
+                W_lst.append(weight * Wk)
+                h_lst.append(weight * hk)
+            W = np.vstack(W_lst)
+            h = np.vstack(h_lst)
+        else:
+            lst = self.hs_estimators_lhs.get(key)
+            assert not(lst is None) and len(lst)>0
+            h = self.hs_estimators_rhs[key]
+            W = np.zeros((lst[0].range.dim, len(lst)), dtype=self.dtype)
+            for i, column_op in enumerate(lst):
+                W[:,i] = column_op.assemble(mu).matrix.reshape(-1)
         return W, h
 
     def minimize_hs_estimator(self, mu, key):
