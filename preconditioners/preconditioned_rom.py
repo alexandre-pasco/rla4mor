@@ -53,6 +53,7 @@ class PreconditionedRom(BasicObject):
         
         func = ProjectionParameterFunctional('precond', size=n_p+1, index=n_p)
         
+        self.logger.info("Preassembling galerkin")
         # for Galerkin
         op_gal = project(P, RB, None, product=Ru)
         op_gal = op_gal * func
@@ -60,11 +61,13 @@ class PreconditionedRom(BasicObject):
         op_gal_lhs = project(op_gal @ self.fom.operator, None, RB)
         op_gal_rhs = contract(expand(op_gal @ self.fom.rhs))
         
+        self.logger.info("Preassembling residual-based estimator")
         # for residual-based estimator
         op_res = project(P, self.residual_embedding.as_source_array(), None)
         op_res_lhs = func * project(op_res @ self.fom.operator, None, RB)
         op_res_rhs = contract(expand(op_res*func @ self.fom.rhs))
         
+        self.logger.info("Adding to last ROM")
         # last rom
         last_rom = self.rom
         
@@ -82,17 +85,7 @@ class PreconditionedRom(BasicObject):
                 new_coefs = []
                 
                 for coef in last_coefs:
-                    # if the functional is not a product
-                    # try:
-                    #     if isinstance(coef, ProjectionParameterFunctional):
-                    #         new_coefs.append(coef.with_(size=n_p+1))
-                    #     # else if it is a product, the precond term must be the first
-                    #     else:
-                    #         new_factors = [f.with_(size=n_p+1) if f.parameter=='precond' else f 
-                    #                        for f in coef.factors]
-                    #         new_coefs.append(coef.with_(factors=new_factors))
-                    # except:
-                    #     new_coefs.append(coef)
+
                     if not(coef.parametric):
                         new_coefs.append(coef)
                     elif isinstance(coef, ProjectionParameterFunctional):
@@ -230,13 +223,13 @@ class PreconditionedRom(BasicObject):
             Parameter value.
 
         """
-        
-        if self.stable_galerkin:
-            rom = self._add_preconditioner_stable(P)
-        else:
-            rom = self._add_preconditioner(P)
-        self.mu_added.append(mu)
-        self.rom = rom
+        with self.logger.block(f"Adding preconditioner to ROM"):
+            if self.stable_galerkin:
+                rom = self._add_preconditioner_stable(P)
+            else:
+                rom = self._add_preconditioner(P)
+            self.mu_added.append(mu)
+            self.rom = rom
 
 
 

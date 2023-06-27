@@ -11,7 +11,7 @@ from pymor.algorithms.simplify import expand, contract
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
 from pymor.core.defaults import set_defaults
-from pymor.operators.constructions import IdentityOperator, InverseOperator, LincombOperator, ConcatenationOperator
+from pymor.operators.constructions import IdentityOperator, InverseOperator, LincombOperator, ConcatenationOperator, VectorArrayOperator
 from pymor.operators.interface import as_array_max_length
 from pymor.parameters.base import Mu
 
@@ -122,12 +122,71 @@ class PreconditionedReductor(BasicObject):
         self.hs_estimators_rhs = dict()
         for key in source_bases.keys():
             self.hs_estimators_lhs[key] = []
-            self.hs_estimators_rhs[key] = self.sketch_operator(
-                IdentityOperator(self.fom.solution_space), key).matrix.reshape(-1)
+            # self.hs_estimators_rhs[key] = self.sketch_operator(
+            #     IdentityOperator(self.fom.solution_space), key).matrix.reshape(-1)
+            self.hs_estimators_rhs[key] = self.sketch_identity(key).matrix.reshape(-1)
         
         # change default value to be able to use to_matrix
         if len(reduced_basis) >= as_array_max_length():
             set_defaults({'pymor.operators.interface.as_array_max_length.value':1+len(reduced_basis)})
+        
+    def sketch_preconditioner(self, P, key):
+        self.logger.info(f"sketching preconditioner {key}")
+        Vr = self.sketched_range_bases[key]
+        Vs = self.sketched_source_bases[key]
+        Rinv = self.inverse_product
+        R = self.product
+        S = self.source_embeddings[key]
+        lhs = self.fom.operator
+        
+        self.logger.info("sketching source and range")
+        
+        if Vr is None:
+            Vr = Rinv.apply(self.range_embeddings[key].as_source_array())
+            # Vr = self.range_embeddings[key].as_source_array()
+            
+        if Vs is None:
+            operators = []
+            for i in range(len(lhs.operators)):
+                op = S @ Rinv @ lhs.operators[i].H @ P.H @ R
+                new_op = project(op, None, Vr).H
+                operators.append(new_op)
+                
+            new_op = lhs.with_(operators=operators)         
+            
+        else:
+            # we want to first compute operator.H @ Vr
+            op = lhs.H @ P.H @ R
+            new_op = project(op, Vs, Vr).H
+            new_op = new_op.with_(coefficients=lhs.coefficients)
+
+        self.logger.info("vectorizing and sketching")
+        result = contract(expand(self.vec_embeddings[key] @ new_op))
+        
+        return result
+    
+    def sketch_identity(self, key):
+        self.logger.info(f"sketching identity {key}")
+        Vr = self.sketched_range_bases[key]
+        Vs = self.sketched_source_bases[key]
+        Rinv = self.inverse_product
+        R = self.product
+        S = self.source_embeddings[key]
+        self.logger.info("sketching source and range")
+        
+        if Vr is None:
+            Vr = Rinv.apply(self.range_embeddings[key].as_source_array())
+            
+        if Vs is None:
+            new_op = project(S, None, Vr).H
+            
+        else:
+            new_op = project(R, Vr, Vs)
+
+        self.logger.info("vectorizing and sketching")
+        result = contract(expand(self.vec_embeddings[key] @ new_op))
+        
+        return result
         
     def sketch_operator(self, operator, key):
         """
@@ -248,7 +307,7 @@ class PreconditionedReductor(BasicObject):
                 W_lst.append(weight * Wk)
                 h_lst.append(weight * hk)
             W = np.vstack(W_lst)
-            h = np.vstack(h_lst)
+            h = np.hstack(h_lst)
         else:
             lst = self.hs_estimators_lhs.get(key)
             assert not(lst is None) and len(lst)>0
@@ -371,7 +430,8 @@ class PreconditionedReductor(BasicObject):
             # except: pass
                     
             for key in self.hs_estimators_lhs.keys():
-                op = self.sketch_operator(P @ self.fom.operator, key)
+                # op = self.sketch_operator(P @ self.fom.operator, key)
+                op = self.sketch_preconditioner(P, key)
                 self.hs_estimators_lhs[key].append(op)
             
             self.prom.add_preconditioner(P, mu)
