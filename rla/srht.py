@@ -166,7 +166,7 @@ def srht(x, k, seed=None, nthreads=4):
     # Adding zeros if the vectors are not of size 2**d
     y = np.append(y, np.zeros((y.shape[0], 2**d-n)), axis=1)
     # Applying the inplace Fast Hadamard Transform
-    y = fht_oop(y)
+    y = fht_oop(y, nthreads)
     # sampling and rescaling
     y = np.sqrt( (2**d)/k ) * y[:, sampling]
     
