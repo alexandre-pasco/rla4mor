@@ -12,6 +12,7 @@ from pymor.operators.constructions import LincombOperator, ZeroOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 from pymor.algorithms.to_matrix import to_matrix
+from pymor.algorithms.projection import project
 
 class ScipyLinearOperator(LinearOperator):
     """
@@ -68,7 +69,6 @@ def stack_lincomb_operators(operators):
     return result
 
 
-
 def concatenate_operators(operators, axis=0):
     op0 = operators[0]
     
@@ -95,4 +95,23 @@ def concatenate_operators(operators, axis=0):
     
     return result
 
+    
+def project_block(op, range_basis, source_basis, product=None, max_block_size=None):
+    
+    if not (source_basis is None):
+        n = int(np.ceil(len(source_basis) // max_block_size))
+        lst = []
+        for i in range(n):
+            Ui = source_basis[max_block_size*i:max_block_size*(i+1)]
+            opi = project(op, range_basis, Ui, product)
+            lst.append(opi)
+        result = concatenate_operators(lst, axis=1)
+    
+    elif not (range_basis is None):
+        result = project_block(op.H, None, range_basis, product, max_block_size).H
+    
+    else:
+        result = project(op)
+    
+    return result
     
