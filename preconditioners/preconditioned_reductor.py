@@ -17,6 +17,7 @@ from pymor.parameters.base import Mu
 
 from pymor.algorithms.projection import project
 
+from utilities.utilities import concatenate_operators, project_block
 from rla.embeddings import IdentityEmbedding
 from preconditioners.preconditioned_rom import PreconditionedRom
 
@@ -130,36 +131,72 @@ class PreconditionedReductor(BasicObject):
         if len(reduced_basis) >= as_array_max_length():
             set_defaults({'pymor.operators.interface.as_array_max_length.value':1+len(reduced_basis)})
         
+    # def sketch_preconditioner(self, P, key):
+    #     self.logger.info(f"sketching preconditioner {key}")
+    #     Vr = self.sketched_range_bases[key]
+    #     Vs = self.sketched_source_bases[key]
+    #     Rinv = self.inverse_product
+    #     R = self.product
+    #     S = self.source_embeddings[key]
+    #     lhs = self.fom.operator
+        
+    #     self.logger.info("sketching source and range")
+        
+    #     if Vr is None:
+    #         Vr = Rinv.apply(self.range_embeddings[key].as_source_array())
+    #         # Vr = self.range_embeddings[key].as_source_array()
+            
+    #     if Vs is None:
+    #         operators = []
+    #         for i in range(len(lhs.operators)):
+    #             op = S @ Rinv @ lhs.operators[i].H @ P.H @ R
+    #             new_op = project(op, None, Vr).H
+    #             operators.append(new_op)
+                
+    #         new_op = lhs.with_(operators=operators)         
+            
+    #     else:
+    #         # we want to first compute operator.H @ Vr
+    #         op = lhs.H @ P.H @ R
+    #         new_op = project(op, Vs, Vr).H
+    #         new_op = new_op.with_(coefficients=lhs.coefficients)
+
+    #     self.logger.info("vectorizing and sketching")
+    #     result = contract(expand(self.vec_embeddings[key] @ new_op))
+        
+    #     return result
+    
     def sketch_preconditioner(self, P, key):
         self.logger.info(f"sketching preconditioner {key}")
         Vr = self.sketched_range_bases[key]
         Vs = self.sketched_source_bases[key]
         Rinv = self.inverse_product
         R = self.product
-        S = self.source_embeddings[key]
         lhs = self.fom.operator
         
         self.logger.info("sketching source and range")
         
-        if Vr is None:
-            Vr = Rinv.apply(self.range_embeddings[key].as_source_array())
-            # Vr = self.range_embeddings[key].as_source_array()
-            
         if Vs is None:
-            operators = []
-            for i in range(len(lhs.operators)):
-                op = S @ Rinv @ lhs.operators[i].H @ P.H @ R
-                new_op = project(op, None, Vr).H
-                operators.append(new_op)
-                
-            new_op = lhs.with_(operators=operators)         
-            
+            S = self.source_embeddings[key] @ Rinv
         else:
-            # we want to first compute operator.H @ Vr
-            op = lhs.H @ P.H @ R
-            new_op = project(op, Vs, Vr).H
-            new_op = new_op.with_(coefficients=lhs.coefficients)
-
+            S = VectorArrayOperator(Vs, adjoint=True)
+        left_op = S @ lhs.H @ P.H
+        
+        if Vr is None:
+            Sr = self.range_embeddings[key]
+            if hasattr(Sr, "n_blocks"):
+                new_op_lst = []
+                for ind in range(Sr.n_blocks):
+                    Vri = Sr.source.from_numpy(Sr.get_block(ind).conj())
+                    op = project(left_op, None, Vri)
+                    new_op_lst.append(op)
+                new_op = concatenate_operators(new_op_lst, axis=1).H
+            else:
+                Vr = Sr.as_source_array()
+                new_op = project(left_op, None, Vr).H
+        else:
+            new_op = project(left_op, None, R.apply(Vr)).H
+        
         self.logger.info("vectorizing and sketching")
         result = contract(expand(self.vec_embeddings[key] @ new_op))
         
@@ -170,18 +207,27 @@ class PreconditionedReductor(BasicObject):
         Vr = self.sketched_range_bases[key]
         Vs = self.sketched_source_bases[key]
         Rinv = self.inverse_product
-        R = self.product
-        S = self.source_embeddings[key]
         self.logger.info("sketching source and range")
         
-        if Vr is None:
-            Vr = Rinv.apply(self.range_embeddings[key].as_source_array())
-            
         if Vs is None:
-            new_op = project(S, None, Vr).H
-            
+            S = self.source_embeddings[key] @ Rinv
         else:
-            new_op = project(R, Vr, Vs)
+            S = VectorArrayOperator(Vs, adjoint=True)
+        
+        if Vr is None:
+            Sr = self.range_embeddings[key]
+            if hasattr(Sr, "n_blocks"):
+                new_op_lst = []
+                for ind in range(Sr.n_blocks):
+                    Vri = Sr.source.from_numpy(Sr.get_block(ind).conj())
+                    op = project(S, None, Vri)
+                    new_op_lst.append(op)
+                new_op = concatenate_operators(new_op_lst, axis=1).H
+            else:
+                Vr = Sr.as_source_array()
+                new_op = project(S, None, Vr).H
+        else:
+            new_op = project(S @ self.product, None, Vr).H
 
         self.logger.info("vectorizing and sketching")
         result = contract(expand(self.vec_embeddings[key] @ new_op))
