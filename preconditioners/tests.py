@@ -18,7 +18,7 @@ from pymor.parameters.base import Mu
 from pymor.parameters.functionals import ProjectionParameterFunctional
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from rla.embeddings import GaussianEmbedding, EmbeddingVectorized
+from rla.embeddings import GaussianEmbedding, EmbeddingVectorized, BlockGaussianEmbedding
 from utilities.factorization import operator_to_cholesky
 from preconditioners.preconditioned_reductor import PreconditionedReductor
 
@@ -388,18 +388,24 @@ if __name__ == '__main__':
 
     # for u_u
     sigma_u_u = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
-    omega_u_u = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
-    gamma_u_u = EmbeddingVectorized(omega_u_u.range, sigma_u_u.range.dim, {'range_dim':k_precond})
+    omega_u_u = BlockGaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond, 'max_block_size':2})
+    gamma_u_u_ = BlockGaussianEmbedding(NumpyVectorSpace(omega_u_u.range.dim * sigma_u_u.range.dim),
+                                        None, {'range_dim':k_precond, 'max_block_size':32})
+    gamma_u_u = EmbeddingVectorized(omega_u_u.range, sigma_u_u.range.dim, gamma_u_u_)
 
     # for u_ur 
     sigma_u_ur = GaussianEmbedding(lhs.source, Qu, {'range_dim':k_precond})
     omega_u_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
-    gamma_u_ur = EmbeddingVectorized(omega_u_ur.range, sigma_u_ur.range.dim, {'range_dim':k_precond})
+    gamma_u_ur_ = BlockGaussianEmbedding(NumpyVectorSpace(omega_u_ur.range.dim * sigma_u_ur.range.dim),
+                                        None, {'range_dim':k_precond, 'max_block_size':32})
+    gamma_u_ur = EmbeddingVectorized(omega_u_ur.range, sigma_u_ur.range.dim, gamma_u_ur_)
 
     # for ur_ur
     sigma_ur_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
     omega_ur_ur = GaussianEmbedding(NumpyVectorSpace(len(u_basis)), None, {'range_dim':k_precond})
-    gamma_ur_ur = EmbeddingVectorized(omega_ur_ur.range, sigma_ur_ur.range.dim, {'range_dim':k_precond})
+    gamma_ur_ur_ = BlockGaussianEmbedding(NumpyVectorSpace(omega_ur_ur.range.dim * sigma_ur_ur.range.dim),
+                                        None, {'range_dim':k_precond, 'max_block_size':32})
+    gamma_ur_ur = EmbeddingVectorized(omega_ur_ur.range, sigma_ur_ur.range.dim, gamma_ur_ur_)
 
     # for residual
     theta = GaussianEmbedding(lhs.source, Qu, {'range_dim':200})

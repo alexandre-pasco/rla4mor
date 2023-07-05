@@ -188,11 +188,11 @@ class SrhtEmbedding(RandomEmbedding):
     
     def _compute_random_matrix(self):
         self.logger.warning_once("Computing explicit SRHT matrix")
-        mat = self._get_rows(np.arange(self.range.dim))
+        mat = self._get_random_rows(np.arange(self.range.dim))
         return mat
     
     
-    def _get_rows(self, indices):
+    def _get_random_rows(self, indices):
         n = self.sqrt_product.range.dim
         k = self.range.dim
         d = int(np.ceil(np.log2(n)))
@@ -320,17 +320,18 @@ class EmbeddingVectorized(RandomEmbedding):
     Sketch a whole vector array by vectorizing it then applying a gaussian
     sketch.
     """
-    def __init__(self, source, n_vectors, options=None, range_id=None,
+    def __init__(self, source, n_vectors, embedding, options=None, range_id=None,
                  _seed=None):
         
         if options is None: options = dict()
         if _seed is None:
             _seed = np.random.randint(0, high=2**32-1)
         self.__auto_init(locals())
+        self.options['range_dim'] = embedding.range.dim
         self.options = FrozenDict(options)
-        self.range = NumpyVectorSpace(self.compute_dim(), id=range_id) 
+        self.range = embedding.range
         self._matrix = None
-        self._random_matrix = self._compute_random_matrix()
+        self._random_matrix = None
         self.linear = True
 
     def compute_dim(self):
@@ -352,29 +353,121 @@ class EmbeddingVectorized(RandomEmbedding):
         assert U in self.source
         assert len(U) == self.n_vectors
         x = U.to_numpy().T.flatten()
-        y = self._random_matrix @ x
-        result = self.range.from_numpy(y)
+        x = self.embedding.source.from_numpy(x)
+        result = self.embedding.apply(x)
         return result
     
     def apply_adjoint(self, U, mu=None):
         pass
     
-    def update(self):
-        self._random_matrix = self._compute_random_matrix()
-    
     
     def _compute_matrix(self):
-        return self._random_matrix
+        return self.embedding._compute_matrix()
     
     
     def _compute_random_matrix(self):
+        return self.embedding._compute_random_matrix()
+    
+
+
+class BlockGaussianEmbedding(RandomEmbedding):
+    
+    def __init__(self, source=None, sqrt_product=None, options=None,
+                 range_id=None, _seed=None):
+    
+        assert not(source is None) or not(sqrt_product is None)
+        assert "max_block_size" in options.keys()
+        if options is None: options = dict()
+        if _seed is None:
+            _seed = np.random.randint(0, high=2**32-1)
+        self.__auto_init(locals())
+        self.options = FrozenDict(options)
+        if sqrt_product is None:
+            self.sqrt_product = IdentityOperator(source)
+        self.source = self.sqrt_product.source
+        self.range = NumpyVectorSpace(self.compute_dim(), id=range_id)
+        self._matrix = None
+        self._random_matrix = None
+        self.linear = True
+        
+        # block sizes
+        max_block_size = options.get("max_block_size")
+        m = self.range.dim // max_block_size
+        r = self.range.dim % max_block_size
+        block_sizes = [max_block_size for i in range(m)]
+        if r > 0: block_sizes.append(r)
+        self.block_sizes = block_sizes
+        self.n_blocks = len(block_sizes)
+        
+        # block_seeds
+        block_seeds = np.random.RandomState(self._seed).randint(0,2**32-1,size=len(block_sizes))
+        while len(np.unique(block_seeds)) < len(block_seeds):
+            self._seed += 1
+            block_seeds = np.random.RandomState(self._seed).randint(0,2**32-1,size=len(block_sizes))
+        self.block_seeds = block_seeds
+        
+    def compute_dim(self):
+        opt = self.options
+        range_dim = opt.get('range_dim')
+        eps = opt.get('epsilon')
+        delta = opt.get('delta')
+        d = opt.get('oblivious_dim')
+        assert range_dim or all([eps, delta, d])
+        if range_dim is None:
+            a = 1
+            if opt.get('dtype') == complex:
+                a = 2
+            range_dim = 7.87 * (1/eps**2) * (a * 6.9 * d + np.log(1/delta))
+            range_dim = int(np.ceil(range_dim))
+        return range_dim
+    
+    
+    def apply(self, U, mu=None):
+        Q = self.sqrt_product
+        V = Q.apply(U)
+        lst = []
+        for i in range(len(self.block_sizes)):
+            gauss = self._get_random_block(i)
+            op = NumpyMatrixOperator(gauss, source_id=Q.range.id, range_id=self.range.id)
+            lst.append(op.apply(V).to_numpy())
+        result = np.hstack(lst)
+        return self.range.from_numpy(result)
+
+    
+    def _compute_matrix(self):
+        mat = self._compute_random_matrix()
+        Q = self.sqrt_product
+        result = Q.apply_adjoint(Q.range.from_numpy(mat.conj())).to_numpy().conj()
+        return result
+        
+    
+    def _compute_random_matrix(self):
+        lst = []
+        for i in range(self.n_blocks):
+            block = self._get_random_block(i)
+            lst.append(block)
+        mat = np.vstack(lst)
+        return mat
+   
+    def _get_random_block(self, ind):
+        
         k = self.range.dim
-        n = self.source.dim * self.n_vectors
-        seed = self._seed
-        gauss = np.random.RandomState(seed).normal(size=(k,n), loc=0, scale=1/np.sqrt(k))
-        return gauss
-    
-    
+        n = self.sqrt_product.range.dim
+        b = self.block_sizes[ind]
+        seed = self.block_seeds[ind]
+        result = np.random.RandomState(seed).normal(
+            size=(b,n), loc=0, scale=1/np.sqrt(k)
+            )
+        return result
+
+    def get_block(self, ind):
+        gauss = self._get_random_block(ind)
+        Q = self.sqrt_product
+        block = Q.apply_adjoint(Q.range.from_numpy(gauss.conj())).to_numpy().conj()
+        return block
+
+
+
     
     
     
