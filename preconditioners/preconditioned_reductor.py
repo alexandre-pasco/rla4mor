@@ -174,8 +174,6 @@ class PreconditionedReductor(BasicObject):
         R = self.product
         lhs = self.fom.operator
         
-        self.logger.info("sketching source and range")
-        
         if Vs is None:
             S = self.source_embeddings[key] @ Rinv
         else:
@@ -197,7 +195,6 @@ class PreconditionedReductor(BasicObject):
         else:
             new_op = project(left_op, None, R.apply(Vr)).H
         
-        self.logger.info("vectorizing and sketching")
         result = contract(expand(self.vec_embeddings[key] @ new_op))
         
         return result
@@ -207,7 +204,6 @@ class PreconditionedReductor(BasicObject):
         Vr = self.sketched_range_bases[key]
         Vs = self.sketched_source_bases[key]
         Rinv = self.inverse_product
-        self.logger.info("sketching source and range")
         
         if Vs is None:
             S = self.source_embeddings[key] @ Rinv
@@ -229,7 +225,6 @@ class PreconditionedReductor(BasicObject):
         else:
             new_op = project(S @ self.product, None, Vr).H
 
-        self.logger.info("vectorizing and sketching")
         result = contract(expand(self.vec_embeddings[key] @ new_op))
         
         return result
