@@ -9,7 +9,6 @@ Created on Tue Apr 18 15:48:03 2023
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
 from pymor.operators.constructions import LincombOperator, ZeroOperator
-from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.algorithms.projection import project
@@ -37,39 +36,28 @@ class ScipyLinearOperator(LinearOperator):
         return self.operator.apply_adjoint(u).to_numpy().reshape(-1)
     
 
-def stack_lincomb_operators(operators):
+def concatenate_operators(operators, axis=0):
     """
-    Merge a list of lincomb operators by h-stacking the i-th affine terms of all
-    operators into a new Lincomb Operators. This function is usefull when projecting
-    a large operator on a large basis, requirering to divide the computations (for RAM issue).
-
+    Concatenate a list of lincomb operators along a given axis, by concatenating 
+    the i-th affine terms of all operators. This function is usefull when projecting
+    a large operator on a large basis, requirering to divide the computations 
+    (for RAM issue).
+    
     Parameters
     ----------
     operators : list of LincombOperator
-        List of lincomb operators, each of them must have the same range and
-        the same number of affine terms. 
+        List of lincomb operators, each of them must have the same number of 
+        affine terms and the same shape on the given axis. 
+    axis : int, optional
+        Axis along which the operators are concatenated. See `numpy.concatenate`.
+        Default is 0.
 
     Returns
     -------
     result : LincombOperator
-        The merged operator.
+        The concatenated operator.
 
     """
-    assert all(isinstance(op, LincombOperator) for op in operators)
-    op0 = operators[0]
-    n_op = len(op0.operators)
-    assert all(len(op.operators) == n_op for op in operators)
-    assert all(op.range == op0.range for op in operators)
-    new_operators = []
-    for i in range(n_op):
-        new_op = np.hstack([op.operators[i].matrix for op in operators])
-        new_op = NumpyMatrixOperator(new_op, source_id=op0.source.id, range_id=op0.range.id)
-        new_operators.append(new_op)
-    result = LincombOperator(new_operators, op0.coefficients)
-    return result
-
-
-def concatenate_operators(operators, axis=0):
     op0 = operators[0]
     
     if all(isinstance(op, LincombOperator) for op in operators):
@@ -97,8 +85,33 @@ def concatenate_operators(operators, axis=0):
 
     
 def project_block(op, range_basis, source_basis, product=None, max_block_size=None):
-    
-    if not (source_basis is None):
+    """
+    Implementation of `pymor.algorithms.projection.project` by dividing the range
+    or source basis into smaller blocks, in order to save RAM. 
+
+    Parameters
+    ----------
+    op : operator
+        See pymor doc.
+    range_basis : VectorArray
+        See pymor doc.
+    source_basis : VectorArray
+        See pymor doc.
+    product : Operator, optional
+        See pymor doc. The default is None.
+    max_block_size : int, optional
+        Maximal block size. If None, `project` is used. The default is None.
+
+    Returns
+    -------
+    result : Operator
+        Projected operator. See pymor doc.
+
+    """
+    if (max_block_size is None) and (source_basis is None) and (range_basis is None):
+        result = project(op, range_basis, source_basis, product)
+        
+    elif not (source_basis is None):
         n = int(np.ceil(len(source_basis) // max_block_size))
         lst = []
         for i in range(n):
@@ -107,11 +120,8 @@ def project_block(op, range_basis, source_basis, product=None, max_block_size=No
             lst.append(opi)
         result = concatenate_operators(lst, axis=1)
     
-    elif not (range_basis is None):
-        result = project_block(op.H, None, range_basis, product, max_block_size).H
-    
     else:
-        result = project(op)
-    
+        result = project_block(op.H, None, range_basis, product, max_block_size).H
+
     return result
     
