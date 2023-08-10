@@ -225,4 +225,14 @@ class ResidualDistanceAffine(ManifoldDistance):
         distance = np.linalg.norm(res.fun)
         mu_min = self.lhs.parameters.parse(res.x)
         return distance, mu_min
+
+
+# TO DO : manifold distance when lhs and rhs share the same parameters, i.e. Gi = Ai @ u - bi 
+
+
+
+
+
+
+
     
