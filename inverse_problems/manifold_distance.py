@@ -210,12 +210,19 @@ class ResidualDistanceAffine(ManifoldDistance):
         op = project(self.lhs, None, u)
         
         # lhs for least squares
-        G = [o.as_range_array().to_numpy().reshape(-1) for o in op.operators[:-1]] 
-        G = G + [-o.as_range_array().to_numpy().reshape(-1) for o in self.rhs.operators[:-1]] 
-        G = np.array(G).T
+        G_lst = []
+        if self.lhs.parameters == self.rhs.parameters:
+            for (o1, o2) in zip(op.operators[:-1], self.rhs.operators[:-1]):
+                G_lst.append((o1.matrix - o2.matrix).reshape(-1))
+        else:
+            for o in op.operators[:-1]:
+                G_lst.append(o.matrix.reshape(-1))
+            for o in self.rhs.operators[:-1]:
+                G_lst.append(-o.matrix.reshape(-1))
+        G = np.array(G_lst).T
         
         # rhs for least squares
-        g = (self.rhs.operators[-1].as_range_array() - op.operators[-1].as_range_array()).to_numpy().reshape(-1)
+        g = (self.rhs.operators[-1].matrix - op.operators[-1].matrix).reshape(-1)
         
         return G, g
     
