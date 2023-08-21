@@ -110,19 +110,17 @@ if __name__ == '__main__':
     plt.ylabel("Dic Multi Space mean test error")
     plt.show()
     
-    # %%
-    # rmi = rm_dic.project_background(np.arange(50))
-    # u_path, dist = rmi.solve_path(obs_test[:,4])
-    # v,_ = rmi.compute_state_path(obs_test[:,4])
-    # w = rmi.compute_correction_path(obs_test[:,4], v)
-    # c = np.block([[v],[w]])
-    # dist, mu_dist = rmi.manifold_distance.evaluate(c)
+    # %% Let's see the path for the worst case
+    u = rm_dic.solve(obs_test)
+    errs = (u_test-u).norm(Ru)
+    imax = errs.argmax()
+    u_path, dist = rm_dic.solve_path(obs_test[:,imax])
+    errs_path = (u_path - u_test[imax]).norm(Ru)
+    plt.scatter(dist, errs_path)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel('Manifold dist')
+    plt.ylabel('error path')
 
-    
-    
-    
-    
-    
-    
-    
-    
+
+
