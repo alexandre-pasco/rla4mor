@@ -43,7 +43,13 @@ if __name__ == '__main__':
     rhs = fom.rhs
     Ru = fom.h1_0_product
     Qu = operator_to_cholesky(Ru)
-    
+
+    # deaffinise
+    # u0 = fom.solve(mu_space.parameters.parse(0.5*np.ones(mu_space.parameters['diffusion'])))
+    # rhs = contract(expand(rhs + project(lhs, None, -u0)))
+    # rhs = rhs.with_(coefficients= [c.factors[0] for c in rhs.coefficients[:-1]] + [1] )
+    # fom = fom.deaffinize(u0)
+
     # %% Create observation space
     W = np.zeros((50, lhs.source.dim))
     W[np.arange(W.shape[0]), np.random.choice(np.arange(lhs.source.dim), size=W.shape[0], replace=False)] = 1
@@ -60,7 +66,7 @@ if __name__ == '__main__':
     plt.show()
     
     # %% Create test set
-    mu_test = mu_space.sample_randomly(10)
+    mu_test = mu_space.sample_randomly(3)
     u_test = lhs.source.empty()
     for mu in mu_test:
         u_test.append(fom.solve(mu))
@@ -91,7 +97,7 @@ if __name__ == '__main__':
     mdist = ResidualDistanceAffine(reduced_lhs, reduced_rhs, param_bounds, log_level=30)
     rm_dic = DicRecoveryMap(V_dic, W, product=Ru, manifold_distance=mdist, log_level=20)
     
-    # %%
+    # %% Evolution of the error with growing dic size
     u_dic = rm_dic.solve(obs_test)
     errors_dic = []
     for i in range(1, len(u_train), 10):
@@ -111,10 +117,7 @@ if __name__ == '__main__':
     # w = rmi.compute_correction_path(obs_test[:,4], v)
     # c = np.block([[v],[w]])
     # dist, mu_dist = rmi.manifold_distance.evaluate(c)
-    
-    
-    
-    
+
     
     
     
