@@ -15,9 +15,9 @@ from pymor.operators.constructions import IdentityOperator, InverseOperator
 from pymor.reductors.residual import ResidualOperator, ResidualReductor
 from pymor.algorithms.projection import project
 
-from rla.embeddings import IdentityEmbedding
-from utilities.other_operators import LsOperator
-from utilities.utilities import concatenate_operators
+from rla4mor.rla.embeddings import IdentityEmbedding
+from rla4mor.utilities.other_operators import LsOperator
+from rla4mor.utilities.utilities import concatenate_operators
 
 class SketchedReductor(BasicObject):
     

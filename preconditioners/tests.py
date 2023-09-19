@@ -18,9 +18,9 @@ from pymor.parameters.base import Mu
 from pymor.parameters.functionals import ProjectionParameterFunctional
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from rla.embeddings import GaussianEmbedding, EmbeddingVectorized, BlockGaussianEmbedding
-from utilities.factorization import operator_to_cholesky
-from preconditioners.preconditioned_reductor import PreconditionedReductor
+from rla4mor.rla.embeddings import GaussianEmbedding, EmbeddingVectorized, BlockGaussianEmbedding
+from rla4mor.utilities.factorization import operator_to_cholesky
+from rla4mor.preconditioners.preconditioned_reductor import PreconditionedReductor
 
 from pymor.core.logger import set_log_levels
 

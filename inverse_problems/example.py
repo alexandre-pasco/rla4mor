@@ -20,12 +20,12 @@ from pymor.parameters.base import Mu
 from pymor.parameters.functionals import ProjectionParameterFunctional
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
-from rla.embeddings import GaussianEmbedding
-from inverse_problems.recovery_map import PbdwRecoveryMap, DicRecoveryMap
+from rla4mor.rla.embeddings import GaussianEmbedding
+from rla4mor.inverse_problems.recovery_map import PbdwRecoveryMap, DicRecoveryMap
 # from inverse_problems.manifold_distance import *
-from utilities.factorization import operator_to_cholesky
+from rla4mor.utilities.factorization import operator_to_cholesky
 from inverse_problems.lars import lars_weighted_path
-from inverse_problems.manifold_distance import ResidualDistanceAffine
+from rla4mor.inverse_problems.manifold_distance import ResidualDistanceAffine
 
 from pymor.core.logger import set_log_levels
 
