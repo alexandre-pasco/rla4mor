@@ -24,7 +24,10 @@ from scipy.optimize import lsq_linear
 import spams
 
 from sklearn.linear_model import ridge_regression, lars_path, LassoLars
-from rla4mor.inverse_problems.lars import lars_weighted_path
+try:
+    from rla4mor.inverse_problems.lars import lars_weighted_path
+except:
+    from inverse_problems.lars import lars_weighted_path
 
 # from affine_operations import *
 # from other_operators import *
