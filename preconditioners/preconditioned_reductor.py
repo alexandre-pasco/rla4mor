@@ -17,9 +17,14 @@ from pymor.parameters.base import Mu
 
 from pymor.algorithms.projection import project
 
-from rla4mor.utilities.utilities import concatenate_operators, project_block
-from rla4mor.rla.embeddings import IdentityEmbedding
-from rla4mor.preconditioners.preconditioned_rom import PreconditionedRom
+try:
+    from rla4mor.utilities.utilities import concatenate_operators, project_block
+    from rla4mor.rla.embeddings import IdentityEmbedding
+    from rla4mor.preconditioners.preconditioned_rom import PreconditionedRom
+except:
+    from utilities.utilities import concatenate_operators, project_block
+    from rla.embeddings import IdentityEmbedding
+    from preconditioners.preconditioned_rom import PreconditionedRom
 
 
 class PreconditionedReductor(BasicObject):
